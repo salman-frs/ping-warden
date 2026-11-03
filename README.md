@@ -2,7 +2,7 @@
   <img src="PingWarden/PingWarden/AppIcon.icon/Assets/network-error-svgrepo-com.svg" width="80" height="80" alt="Ping Warden">
 </p>
 
-<h1 align="center">Ping Warden (personal build)</h1>
+<h1 align="center">Ping Warden</h1>
 
 <p align="center">
   <strong>Keep AWDL paused while you play, with latency readings you can inspect.</strong>
@@ -11,17 +11,12 @@
 <p align="center">
   <code>event-driven protection</code> &bull;
   <code>macOS 13+</code> &bull;
-  <code>no license gate</code> &bull;
-  <code>no telemetry</code>
+  <code>build from source</code>
 </p>
 
 ---
 
-This is a personal fork of [Ping Warden](https://github.com/oliverames/ping-warden) by Oliver Ames. It keeps the original app, its interface, and every feature, with these differences:
-
-- **Ping Protection is free.** The Gumroad license check, the existing-user transition, and every purchase prompt are removed. Protection, Latency Sessions, Game Mode, the pause, and the Control Center toggle all work without a key.
-- **Nothing is sent to the original developer.** Sentry crash and error reporting is removed, along with its settings toggle.
-- **No automatic updates.** Sparkle is removed, so the app never fetches the upstream appcast or installs an upstream (licensed) build over this one. Update by pulling and rebuilding.
+A fork of [Ping Warden](https://github.com/oliverames/ping-warden) by Oliver Ames. It builds the whole app from source without license activation, crash reporting, or Sparkle updates. Everything else follows upstream. For the signed and notarized app, use [the upstream release](https://github.com/oliverames/ping-warden/releases/latest).
 
 Ping Warden watches Apple Wireless Direct Link (AWDL), the interface used by AirDrop, AirPlay, Handoff, and other nearby-device features, and keeps it down while protection is on. The dashboard shows latency, jitter, and probe history so you can judge the effect on your own network.
 
@@ -62,7 +57,15 @@ cd ping-warden
 open PingWarden/PingWarden.xcodeproj
 ```
 
-Building needs Xcode. The helper only accepts a signature from the Team ID compiled into it, so before building you must sign the app, helper, and widget targets with your own team and replace the upstream Team ID (`PV3W52NDZ3`) and bundle identifiers (`com.salmanfrs.pingwarden*`). The helper-registration flow only works when the built app is installed in `/Applications`.
+Building needs Xcode and an Apple Development certificate. Sign with your own team, then install the app in `/Applications`, because macOS only registers the helper from there:
+
+```bash
+xcodebuild -project PingWarden/PingWarden.xcodeproj -scheme PingWarden \
+  -configuration Release -derivedDataPath build DEVELOPMENT_TEAM=<your team ID>
+cp -R "build/Build/Products/Release/Ping Warden.app" /Applications/
+```
+
+The helper only accepts requests from an app signed by the same team as itself.
 
 Tests that run without Xcode:
 

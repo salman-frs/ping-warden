@@ -14,5 +14,5 @@
 
 - [ ] I did not commit credentials, signing material, diagnostics, or personal network data.
 - [ ] I considered macOS 13 compatibility.
-- [ ] I updated documentation and release notes when behavior changed.
-- [ ] Changes to XPC, the privileged helper, updates, signing, or packaging include focused tests.
+- [ ] I updated documentation when behavior changed.
+- [ ] Changes to XPC, the privileged helper, or signing include focused tests.

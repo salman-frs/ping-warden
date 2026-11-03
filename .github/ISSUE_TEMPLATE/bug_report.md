@@ -42,7 +42,7 @@ For a crash, attach the Ping Warden crash report from Console if one is availabl
 
 ## Checks already tried
 
-- [ ] I read the [Troubleshooting guide](https://github.com/oliverames/ping-warden/blob/main/PingWarden/TROUBLESHOOTING.md).
+- [ ] I read the [Troubleshooting guide](https://github.com/salman-frs/ping-warden/blob/main/PingWarden/TROUBLESHOOTING.md).
 - [ ] I ran **Settings > Advanced > Run Test**.
 - [ ] I quit and reopened Ping Warden.
 - [ ] I re-registered the helper, if the helper test failed.

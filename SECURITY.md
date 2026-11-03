@@ -2,16 +2,14 @@
 
 Report suspected vulnerabilities through GitHub's private vulnerability reporting form:
 
+https://github.com/salman-frs/ping-warden/security/advisories/new
+
+If the issue also affects upstream Ping Warden, report it there too:
+
 https://github.com/oliverames/ping-warden/security/advisories/new
 
-Do not open a public issue. Include the affected Ping Warden and macOS versions, reproduction steps, and the impact you observed. If the report involves the privileged helper or updater, describe the trust boundary that was crossed. Leave out credentials and unrelated personal data.
-
-I will acknowledge reports as soon as I can. Confirmed vulnerabilities will be prioritized by severity, then documented after users have had a reasonable chance to update.
+Do not open a public issue. Include the Ping Warden commit and macOS version, reproduction steps, and the impact you observed. If the report involves the privileged helper, describe the trust boundary that was crossed. Leave out credentials and unrelated personal data.
 
 ## Supported versions
 
-Security fixes are issued for the current public release. Update through Ping Warden or download the latest notarized release from GitHub.
-
-## Release integrity
-
-Public releases are signed with Oliver Ames's Apple Developer ID, notarized by Apple, and distributed in a signed disk image. Sparkle update archives and feeds use EdDSA signatures. If macOS or Ping Warden reports an invalid signature, stop the installation and file a private report.
+Fixes land on `main`. Pull and rebuild to pick them up.
