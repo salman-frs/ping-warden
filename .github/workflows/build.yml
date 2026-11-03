@@ -42,12 +42,6 @@ jobs:
     - name: Show Xcode version
       run: xcodebuild -version
 
-    - name: Validate appcast XML
-      run: |
-        xmllint --noout appcast.xml
-        grep -q '<!-- sparkle-signatures:' appcast.xml
-        echo "✓ appcast.xml is valid XML"
-
     - name: Validate version consistency
       if: needs.scope.outputs.native == 'true'
       run: |
@@ -90,19 +84,9 @@ jobs:
       if: needs.scope.outputs.native == 'true'
       run: python3 scripts/test_coordinator.py
 
-    - name: Test crash reporting privacy and lifecycle
-      if: needs.scope.outputs.native == 'true'
-      run: bash scripts/test_crash_reporter.sh
-
     - name: Test release metadata and buyer content
       if: needs.scope.outputs.native == 'true'
       run: python3 scripts/test_release_tools.py
-
-    - name: Verify update feeds against the app public key
-      run: |
-        PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' PingWarden/PingWarden/Info.plist)
-        swift scripts/verify_sparkle.swift appcast.xml "$PUBLIC_KEY"
-        swift scripts/verify_sparkle.swift appcast-beta.xml "$PUBLIC_KEY"
 
     - name: Build complete app
       if: needs.scope.outputs.native == 'true'
@@ -187,7 +171,6 @@ jobs:
           scripts/release_validation.sh
           scripts/run-smoke-tests.sh
           scripts/test_helper.sh
-          scripts/test_crash_reporter.sh
         )
         for f in "${scripts[@]}"; do
           echo "=== bash -n $f ==="

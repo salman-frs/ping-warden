@@ -89,7 +89,7 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
                     let dockShown = Policy.isDockIconShown(mode: mode, showDockIconPreference: preference, controlCenterAvailable: available)
                     let opensSettings = Policy.shouldOpenSettingsAtLaunch(
                         mode: mode, controlCenterAvailable: available, showDockIconPreference: preference,
-                        launchReason: .direct, welcomeVisible: false, licenseNoticeVisible: false
+                        launchReason: .direct, welcomeVisible: false
                     )
                     XCTAssertTrue(!menuBarHidden || dockShown || opensSettings, "\(mode) pref=\(preference) available=\(available)")
                 }
@@ -107,12 +107,11 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
     func testEachSourceProducesASilentReason() {
         XCTAssertEqual(Policy.launchReason(from: LaunchSignals(launchedAsLoginItem: true)), .loginItem)
         XCTAssertEqual(Policy.launchReason(from: LaunchSignals(launchIsDefault: false)), .sessionRestore)
-        XCTAssertEqual(Policy.launchReason(from: LaunchSignals(relaunchedByUpdater: true)), .updateRelaunch)
         XCTAssertEqual(
             Policy.launchReason(from: LaunchSignals(arguments: ["/Applications/Ping Warden.app", Policy.controlCenterLaunchArgument])),
             .controlCenter
         )
-        for reason in [LaunchReason.loginItem, .sessionRestore, .updateRelaunch, .controlCenter] {
+        for reason in [LaunchReason.loginItem, .sessionRestore, .controlCenter] {
             XCTAssertTrue(reason.isSilent)
         }
     }
@@ -136,15 +135,6 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
         XCTAssertEqual(state.reason, .loginItem)
     }
 
-    func testUpdateRelaunchMarkerExpires() {
-        let now = Date(timeIntervalSince1970: 1_000_000)
-        XCTAssertFalse(Policy.isUpdateRelaunchMarkerFresh(markedAt: nil, now: now))
-        XCTAssertTrue(Policy.isUpdateRelaunchMarkerFresh(markedAt: now.addingTimeInterval(-5), now: now))
-        XCTAssertFalse(Policy.isUpdateRelaunchMarkerFresh(markedAt: now.addingTimeInterval(-900), now: now))
-        // A clock that moved backwards must not make the marker last forever.
-        XCTAssertFalse(Policy.isUpdateRelaunchMarkerFresh(markedAt: now.addingTimeInterval(60), now: now))
-    }
-
     // MARK: - shouldOpenSettingsAtLaunch
 
     private func opensSettings(
@@ -152,16 +142,14 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
         available: Bool = true,
         dockPreference: Bool = false,
         reason: LaunchReason = .direct,
-        welcome: Bool = false,
-        notice: Bool = false
+        welcome: Bool = false
     ) -> Bool {
         Policy.shouldOpenSettingsAtLaunch(
             mode: mode,
             controlCenterAvailable: available,
             showDockIconPreference: dockPreference,
             launchReason: reason,
-            welcomeVisible: welcome,
-            licenseNoticeVisible: notice
+            welcomeVisible: welcome
         )
     }
 
@@ -171,7 +159,7 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
     }
 
     func testSilentLaunchesStaySilent() {
-        for reason in [LaunchReason.loginItem, .sessionRestore, .updateRelaunch, .controlCenter] {
+        for reason in [LaunchReason.loginItem, .sessionRestore, .controlCenter] {
             XCTAssertFalse(opensSettings(reason: reason), "\(reason)")
         }
     }
@@ -187,26 +175,8 @@ final class InterfaceVisibilityPolicyTests: XCTestCase {
         XCTAssertFalse(opensSettings(available: false))
     }
 
-    func testSettingsWaitsBehindWelcomeAndLicenseNotice() {
+    func testSettingsWaitsBehindWelcome() {
         XCTAssertFalse(opensSettings(welcome: true))
-        XCTAssertFalse(opensSettings(notice: true))
-    }
-
-    // MARK: - LaunchPresentationGate
-
-    func testGateOpensOnceAfterBothSteps() {
-        var gate = LaunchPresentationGate()
-        XCTAssertFalse(gate.settle(.welcome))
-        XCTAssertTrue(gate.settle(.licenseNotice))
-        XCTAssertFalse(gate.settle(.welcome))
-        XCTAssertFalse(gate.settle(.licenseNotice))
-    }
-
-    func testGateOrderDoesNotMatter() {
-        var gate = LaunchPresentationGate()
-        XCTAssertFalse(gate.settle(.licenseNotice))
-        XCTAssertFalse(gate.settle(.licenseNotice))
-        XCTAssertTrue(gate.settle(.welcome))
     }
 
     // MARK: - Copy

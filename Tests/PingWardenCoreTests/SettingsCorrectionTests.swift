@@ -24,19 +24,4 @@ final class SettingsCorrectionTests: XCTestCase {
             XCTAssertNil(CustomPingTargetStore.validate(displayName: "New", host: host, port: 65535), host)
         }
     }
-
-    func testReminderCopyOnlyPromisesFutureThresholds() {
-        let intro = LicenseReminderPolicy.followUpMessage(daysRemaining: 90)
-        XCTAssertTrue(intro.contains("30 days and 7 days"))
-        for remaining in [30, 29, 8] {
-            let message = LicenseReminderPolicy.followUpMessage(daysRemaining: remaining)
-            XCTAssertFalse(message.contains("30 days"))
-            XCTAssertTrue(message.contains("again when 7 days"))
-        }
-        for remaining in [7, 6, 1, 0] {
-            let message = LicenseReminderPolicy.followUpMessage(daysRemaining: remaining)
-            XCTAssertTrue(message.contains("final"))
-            XCTAssertFalse(message.contains("again"))
-        }
-    }
 }

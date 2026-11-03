@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 private let protectionExperienceLog = Logger(
-    subsystem: "com.amesvt.pingwarden",
+    subsystem: "com.salmanfrs.pingwarden",
     category: "ProtectionExperience"
 )
 
@@ -24,7 +24,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
     private let monitor = PingWardenMonitor.shared
     private let preferences = PingWardenPreferences.shared
     private let session = ProtectedSessionCoordinator.shared
-    private let license = LicenseManager.shared
     private var pauseTimer: Timer?
     private var actionGeneration = 0
     /// The action that set `transition`. Only that action may release it, so
@@ -104,7 +103,7 @@ final class ProtectionExperienceCoordinator: ObservableObject {
 
     /// Called only after an explicit Repair confirmation. Reconcile current
     /// policy instead of replaying a snapshot of the saved preference: a
-    /// pause, session, license change or newer Off must still win.
+    /// pause, session, or newer Off must still win.
     /// Checks the helper and rebuilds its registration in one go. The
     /// Repair surfaces use `checkHelperForRepair` and `reapproveHelper`
     /// instead, so macOS announces nothing before the person is told why.
@@ -191,7 +190,7 @@ final class ProtectionExperienceCoordinator: ObservableObject {
                     message: monitor.lastSetupFailureMessage ?? RepairResultCopy.failureMessage
                 )
             }
-            // A newer On/Off, pause or license change owns its command even
+            // A newer On/Off or pause owns its command even
             // before its reply updates the saved preference. Replaying that
             // old preference here would supersede the newer operation.
             if actionGeneration == repairGeneration,
@@ -253,7 +252,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
             sessionPhase: session.phase,
             sessionTrigger: session.activeTrigger,
             pauseUntil: pauseUntil,
-            licenseAllowsProtection: license.canEnableProtection,
             protectionRequested: monitor.isMonitoringRequested,
             commandInFlight: transition != .idle || monitor.isProtectionCommandInFlight,
             helperResponding: !helperSilent
@@ -316,68 +314,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
         }
     }
 
-    /// Called after a license re-verification settles. A revoked or
-    /// invalid license while protection is actively enabled turns
-    /// protection off immediately; the user sees why in the menu and
-    /// Settings. An unreachable API never triggers this: the offline
-    /// grace window in LicensePolicy covers that case.
-    func handleLicenseReverification() async {
-        objectWillChange.send()
-
-        if license.canEnableProtection {
-            if lastError?.localizedCaseInsensitiveContains("license") == true {
-                lastError = nil
-            }
-            return
-        }
-
-        // Also cancel an enable whose helper reply has not arrived yet.
-        guard monitor.isMonitoringActive
-                || monitor.isMonitoringRequested
-                || monitor.isProtectionDesired
-                || preferences.isMonitoringEnabled
-                || isBusy else { return }
-
-        actionGeneration += 1
-        let generation = actionGeneration
-        clearPause()
-        if session.phase != .idle {
-            requestedSessionTrigger = nil
-            await session.stop(
-                endReason: .protectionTurnedOff,
-                protectionWasInterrupted: true
-            )
-        }
-        guard generation == actionGeneration, !license.canEnableProtection else { return }
-        beginTransition(.disablingProtection, for: generation)
-        let success = await monitor.setProtectionEnabled(
-            false,
-            persistUserPreference: true
-        )
-        endTransition(for: generation)
-        guard generation == actionGeneration else { return }
-        guard !license.canEnableProtection else {
-            lastError = nil
-            objectWillChange.send()
-            return
-        }
-        lastError = success
-            ? LicenseCopy.revoked
-            : "The license for Ping Protection is no longer valid, and it could not turn off cleanly. Quit Ping Warden to restore wireless sharing."
-        objectWillChange.send()
-    }
-
-    /// Called at launch when the persisted protection intent survived
-    /// but the entitlement did not (transition ended, refund, forged
-    /// preference). The monitor already refused to restore AWDL-down;
-    /// this clears the stale intent so the menu does not claim
-    /// protection is on, and tells the user why.
-    func noteLaunchLicenseGate() {
-        preferences.isMonitoringEnabled = false
-        lastError = LicenseCopy.stayedOffAtLaunch(transitionEnded: license.grandfatherWindowExpired)
-        objectWillChange.send()
-    }
-
     /// The helper is registered but did not answer at launch. Point to the
     /// repair path without replacing a more specific message.
     func noteHelperNotResponding() {
@@ -427,14 +363,13 @@ final class ProtectionExperienceCoordinator: ObservableObject {
 
     /// Decide whether to offer Repair now, later, or not at all, using
     /// `HelperRepairOffer` in Core: once per failure episode, after the
-    /// debounce, only while protection needs the helper and a license
-    /// allows it. Offering never repairs anything by itself.
+    /// debounce, only while protection needs the helper. Offering never
+    /// repairs anything by itself.
     func evaluateRepairOffer() {
         repairOfferCheck?.cancel()
         repairOfferCheck = nil
         let state = HelperRepairOffer.State(
             problem: currentHelperProblem,
-            licenseAllowsProtection: license.canEnableProtection,
             protectionNeeded: protectionNeedsHelper,
             busy: isTerminating || isBusy || isRepairingHelper || monitor.isHelperSetupInProgress
         )
@@ -464,7 +399,7 @@ final class ProtectionExperienceCoordinator: ObservableObject {
     /// being repaired, is not asked again. The app calls this a few
     /// seconds after wake so the helper has time to come back.
     func confirmHelperAfterWake() {
-        guard !isTerminating, license.canEnableProtection, protectionNeedsHelper,
+        guard !isTerminating, protectionNeedsHelper,
               monitor.isHelperRegistered, !helperSilent, !isRepairingHelper else { return }
         monitor.confirmHelperResponds { [weak self] responds in
             Task { @MainActor in
@@ -492,14 +427,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
 
     @discardableResult
     func setPersistentProtection(_ enabled: Bool) async -> Bool {
-        // The license gate covers every path that would put AWDL down:
-        // persistent toggles, latency sessions, Game Mode, and launch
-        // reconciliation all funnel through the two entry points below.
-        if enabled, !license.canEnableProtection {
-            lastError = LicenseCopy.required(transitionEnded: license.grandfatherWindowExpired)
-            objectWillChange.send()
-            return false
-        }
         guard !enabled || !isTerminating else { return false }
 
         actionGeneration += 1
@@ -575,30 +502,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
         }
         objectWillChange.send()
         return success
-    }
-
-    /// Turn protection on after the person explicitly activated a license,
-    /// through the same path as their own toggle. Only the license
-    /// activation surfaces call this, never launch-time or periodic
-    /// re-verification. A pause, a session, or a change already in flight
-    /// is left alone; `LicenseActivationProtection` says why.
-    @discardableResult
-    func turnOnProtectionAfterLicenseActivation() async -> LicenseActivationProtection {
-        let decision = LicenseActivationProtection.decide(LicenseActivationProtection.State(
-            canEnableProtection: license.canEnableProtection,
-            protectionOn: monitor.isMonitoringActive,
-            savedChoiceOn: preferences.isMonitoringEnabled,
-            pauseActive: isPauseActive,
-            sessionActive: session.phase != .idle,
-            changeInFlight: isTerminating || isBusy || isRepairingHelper
-                || monitor.isProtectionCommandInFlight
-        ))
-        protectionExperienceLog.info(
-            "License activated; protection follow-up: \(String(describing: decision), privacy: .public)"
-        )
-        guard decision == .turnOn else { return decision }
-        await setPersistentProtection(true)
-        return decision
     }
 
     @discardableResult
@@ -698,18 +601,14 @@ final class ProtectionExperienceCoordinator: ObservableObject {
         // Every preference write this app makes posts the same notification
         // and arrives here after the write that caused it. When the shared
         // state already matches what this app requested, nothing external
-        // happened; adopting it would clear a license message, cancel a
-        // pause, and supersede the actions that just finished.
+        // happened; adopting it would cancel a pause and supersede the
+        // actions that just finished.
         if enabled == monitor.isMonitoringRequested {
             objectWillChange.send()
             return
         }
         actionGeneration += 1
-        // A license message explains why protection is off; a widget toggle
-        // does not make it untrue.
-        if lastError?.localizedCaseInsensitiveContains("license") != true {
-            lastError = nil
-        }
+        lastError = nil
         clearPause()
         // The external writer owns the radio now; release any transition a
         // superseded local action left behind so the UI stays interactive.
@@ -855,20 +754,6 @@ final class ProtectionExperienceCoordinator: ObservableObject {
         gameModeRequest: Int?
     ) async -> Bool {
         guard !isTerminating else { return false }
-        if !license.canEnableProtection {
-            // Without this the refusal is invisible in the log, so a session
-            // that never engages has no stated cause in a field report.
-            let refusalReason = license.grandfatherWindowExpired
-                ? "transition period ended"
-                : "no license"
-            protectionExperienceLog.info(
-                "Protection session refused for \(String(describing: trigger), privacy: .public): \(refusalReason, privacy: .public)"
-            )
-            lastError = LicenseCopy.required(transitionEnded: license.grandfatherWindowExpired)
-            objectWillChange.send()
-            return false
-        }
-
         guard monitor.isHelperRegistered, session.phase == .idle else {
             lastError = monitor.isHelperRegistered
                 ? nil

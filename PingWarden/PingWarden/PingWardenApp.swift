@@ -12,10 +12,9 @@ import SwiftUI
 import Combine
 import ServiceManagement
 import os.log
-import Sparkle
 import Network
 
-private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "App")
+private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "App")
 
 // MARK: - Backward Compatible onChange
 
@@ -66,14 +65,10 @@ struct PingWardenApp: App {
                     appDelegate.openAbout()
                 }
             }
-            // Declared here rather than inserted into NSApp.mainMenu, which
-            // SwiftUI rebuilds and so dropped the item.
-            CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") {
-                    appDelegate.checkForUpdates()
-                }
+            CommandGroup(replacing: .help) {
+                Link("Ping Warden Help", destination: ProjectLinks.repository)
+                Link("Troubleshooting", destination: ProjectLinks.troubleshooting)
             }
-            PingWardenHelpCommands(appDelegate: appDelegate)
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
                     appDelegate.openSettings()
@@ -84,37 +79,8 @@ struct PingWardenApp: App {
     }
 }
 
-/// Observe the offer at the command boundary so changes after app launch
-/// update the Help menu even though the Settings scene hosts no window.
 @MainActor
-struct PingWardenHelpCommands: Commands {
-    @ObservedObject var appDelegate: AppDelegate
-
-    var body: some Commands {
-        CommandGroup(replacing: .help) {
-            Link("Ping Warden Help", destination: LicenseManager.documentationURL)
-            Link("Troubleshooting", destination: LicenseManager.troubleshootingURL)
-            Link("Ping Warden Website", destination: LicenseManager.websiteURL)
-            Link("Report an Issue…", destination: AboutView.reportIssueURL)
-            if let whatsNewVersion = appDelegate.whatsNewVersion {
-                Divider()
-                Button("What's New in \(whatsNewVersion)…") {
-                    appDelegate.openWhatsNew()
-                }
-            }
-        }
-    }
-}
-
-@MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate, SPUUpdaterDelegate, ObservableObject {
-    private static let whatsNewMenuItemTag = 180
-    // Sparkle feed URL is defined in Info.plist (SUFeedURL) as the single source of truth.
-
-    private var updaterController: SPUStandardUpdaterController?
-    private var updaterStartupError: Error?
-    private var updaterHasStarted = false
-    
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var monitoringObserver: NSObjectProtocol?
     private var controlCenterObserver: NSObjectProtocol?
     private var dockIconObserver: NSObjectProtocol?
@@ -134,7 +100,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     /// Measures the setup window's content for a proposed size.
     private var setupWindowMeasure: ((NSSize) -> NSSize)?
     private var setupWindowObservation: AnyCancellable?
-    private var licenseNoticeWindow: NSWindow?
     private var gameModeDetector: GameModeDetector?
     private var monitorStateObserverToken: UUID?
     private var protectionExperienceObservation: AnyCancellable?
@@ -153,23 +118,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     /// Why this process started. Read once at launch; a later source can
     /// mark it through `recordLaunchReason(_:)` before Settings is decided.
     private var launchReasonState = LaunchReasonState(signals: LaunchSignals())
-    /// Holds the launch Settings decision until the welcome and license
-    /// notice decisions have both run.
-    private var launchPresentationGate = LaunchPresentationGate()
-    /// Written just before Sparkle relaunches the app, read and cleared at
-    /// the next launch. Lives in the app's own defaults, not the App Group.
-    nonisolated private static let updateRelaunchMarkerKey = "UpdaterRelaunchRequestedAt"
-    /// Version whose release notes are on offer; nil once opened or when
-    /// nothing is new. Published so the SwiftUI Help menu tracks it.
-    @Published private(set) var whatsNewVersion: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         log.info("Ping Warden launching...")
 
         // Read while the launch Apple event is still current. A launch the
         // person started opens Settings when Control Center Only hides both
-        // icons; login, session restore, update relaunch, and Control Center
-        // launches stay silent.
+        // icons; login, session restore, and Control Center launches stay
+        // silent.
         //
         // Session restore: "Reopen windows when logging back in" relaunches
         // apps without keyAELaunchedAsLogInItem, so launchIsDefault is the
@@ -183,16 +139,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                 && launchEvent?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem,
             launchIsDefault: notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true,
             arguments: ProcessInfo.processInfo.arguments,
-            relaunchedByUpdater: consumeUpdateRelaunchMarker(),
             launchedByControlCenter: ControlCenterLaunchHandoff.consume(in: PingWardenPreferences.shared.defaults)
         ))
         log.info("Launch reason: \(String(describing: self.launchReasonState.reason), privacy: .public)")
 
         OnboardingPresenter.handler = { [weak self] mode in
             self?.showSetupWindow(mode: mode)
-        }
-        OnboardingPresenter.licenseActivationHandler = { [weak self] in
-            self?.continueSetupAfterLicenseActivation()
         }
         sessionCoordinator.onSessionStateChanged = { [weak self] in
             self?.updateQuickActionMenuItems()
@@ -218,17 +170,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             Task { @MainActor in self?.updateMenuItem() }
         }
 
-        // Anonymous crash reporting defaults on only when no choice is saved.
-        // The Settings privacy toggle is checked before SDK startup.
-        CrashReporter.startIfEnabled()
-#if DEBUG
-        // Proves the DSN path end to end without touching production data:
-        // Debug builds report under the `development` environment.
-        if ProcessInfo.processInfo.arguments.contains("--sentry-test-event") {
-            CrashReporter.sendDeliveryTestEvent()
-        }
-#endif
-
         // Clear any cached Settings window state from prior builds that may have
         // injected fullSizeContentView or other window customizations via onAppear.
         // The SwiftUI Settings scene persists window frames under these keys.
@@ -241,42 +182,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             }
         }
 
-        // Initialize monitoring before Sparkle so first-run UX can be gated on setup state.
         let monitor = PingWardenMonitor.shared
-        // Setup, repair, and protection signals reach crash reporting only
-        // while it is on; CrashReporter drops them otherwise.
-        monitor.telemetryHandler = { signal in CrashReporter.submit(signal) }
 
-        // Licensing: grandfather existing installs (protection already
-        // enabled and helper already approved) for 90 days, then enforce
-        // the license gate.
-        LicenseManager.shared.establishGrandfatheringIfNeeded(helperEnabled: monitor.isHelperRegistered)
-        LicenseManager.shared.onReverificationSettled = { [weak self] in
-            Task { @MainActor in
-                await self?.protectionExperience.handleLicenseReverification()
-                self?.presentDueLicenseNotice()
-            }
-        }
-        LicenseManager.shared.startPeriodicReverification()
-        LicenseManager.shared.reverifyAtLaunchIfNeeded()
-
-        // The monitor only restores persisted protection when the gate
-        // already held before grandfathering ran. A freshly grandfathered
-        // install is restored by the launch reconcile below, which joins
-        // any enable already in flight. A persisted intent whose
-        // entitlement is gone is cleared here. Without an approved helper,
-        // the intent waits for Finish Setup: enabling now would open Login
-        // Items with no action from the person and stall for a minute.
+        // Without an approved helper, the saved intent waits for Finish
+        // Setup: enabling now would open Login Items with no action from the
+        // person and stall for a minute.
         switch ProtectionExperiencePolicy.launchIntentAction(
             persistentProtectionEnabled: PingWardenPreferences.shared.isMonitoringEnabled,
-            licenseAllowsProtection: LicenseManager.shared.canEnableProtection,
             helperRegistered: monitor.isHelperRegistered
         ) {
         case .none:
             break
-        case .clearIntentForLicense:
-            log.info("Clearing persisted protection intent: license entitlement is gone")
-            protectionExperience.noteLaunchLicenseGate()
         case .waitForSetup:
             log.info("Saved protection intent is waiting for helper setup")
             protectionExperience.noteSetupIncomplete()
@@ -290,35 +206,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 #else
         let debugWindowTarget: String? = nil
 #endif
-        // Check on launch and while the app is in use. The persisted timestamp
-        // prevents relaunches or missed weeks from producing repeated prompts.
-        // This first check also settles the launch Settings decision.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            guard let self else { return }
-            self.presentDueLicenseNotice(allowBackground: true)
-            if debugWindowTarget == nil {
-                self.settleLaunchPresentation(.licenseNotice)
-            }
-        }
-
-        // Initialize Sparkle updater and start explicitly so failures can be logged clearly.
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: false,
-            updaterDelegate: self,
-            userDriverDelegate: nil
-        )
-        updaterController?.updater.clearFeedURLFromUserDefaults()
-        // Defer only while the first-run introduction is still pending. Someone
-        // who declines the helper and stays on the free dashboard is in a
-        // supported state, and must still get scheduled update checks, security
-        // fixes included. Keying this to helper registration alone left those
-        // installs never checking for updates at all.
-        if monitor.isHelperRegistered
-            || !welcomePresentation.shouldPresentAutomatically(helperIsRegistered: monitor.isHelperRegistered) {
-            _ = startUpdaterIfNeeded()
-        } else {
-            log.info("Deferring Sparkle updater start until the first-run introduction closes")
-        }
 
         // Check for quarantine issues and help user if needed
         QuarantineHelper.showQuarantineHelpIfNeeded()
@@ -333,18 +220,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                 self.protectionExperience.refreshFromMonitor()
                 self.updateMenuBarIcon()
                 self.updateMenuItem()
-                // If Sparkle was deferred during first-run setup, start it as
-                // soon as the helper registration completes — otherwise
-                // automatic update checks stay silently disabled all session.
-                if PingWardenMonitor.shared.isHelperRegistered {
-                    self.startUpdaterIfNeeded()
-                }
             }
         }
-
-        // Decide before the status menu is built whether this launch follows
-        // an update; the What's New item only exists while there is one.
-        prepareWhatsNewOffer()
 
         // Setup menu bar (unless an icon-hiding mode is on AND the widget is available)
         // Always check if widget is actually available before hiding menu bar
@@ -358,8 +235,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             setupMenuBar()
         }
 
-        // Helper setup can remain incomplete when someone only wants the
-        // free dashboard. Show the optional introduction once, not every launch.
+        // Helper setup can remain incomplete when someone skips it. Show the
+        // optional introduction once, not every launch.
         if !monitor.isHelperRegistered {
             log.info("Helper setup is incomplete")
             if debugWindowTarget == nil {
@@ -369,7 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                     ) {
                         self.showSetupWindow(mode: .firstRun)
                     }
-                    self.settleLaunchPresentation(.welcome)
+                    self.openSettingsIfNoVisibleEntryPoint()
                 }
             }
         } else {
@@ -397,7 +274,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                     if !responds, self.welcomePresentation.shouldPresentAutomatically(helperIsRegistered: false) {
                         self.showSetupWindow(mode: .firstRun)
                     }
-                    self.settleLaunchPresentation(.welcome)
+                    self.openSettingsIfNoVisibleEntryPoint()
                 }
             }
         }
@@ -542,17 +419,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 
     func applicationDidBecomeActive(_ notification: Notification) {
         ensureApplicationMenuItems()
-        presentDueLicenseNotice()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         log.info("Ping Warden terminating...")
         isTerminating = true
-
-        // A timed-out enable's event may still be waiting for a late reply.
-        // Record it on this thread, not through the main-queue hop the
-        // telemetry handler uses, so it is stored before the process exits.
-        PingWardenMonitor.shared.flushHeldTelemetry { CrashReporter.record($0) }
 
         gameModeDetector?.stop()
         protectionExperience.finishForTermination()
@@ -609,7 +480,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         let settingsVisible = settingsWindow?.isVisible ?? false
         let aboutVisible = aboutWindow?.isVisible ?? false
         let welcomeVisible = welcomeWindow?.isVisible ?? false
-        let licenseNoticeVisible = licenseNoticeWindow?.isVisible ?? false
 
         // Hide Menu Bar Icon (4.2.1 and earlier) keeps the Dock icon on, the
         // old lockout guard, without rewriting the saved Show Dock Icon
@@ -623,7 +493,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             controlCenterAvailable: ControlCenterSupport.isAvailableForCurrentApp()
         )
 
-        if dockIconShown || settingsVisible || aboutVisible || welcomeVisible || licenseNoticeVisible {
+        if dockIconShown || settingsVisible || aboutVisible || welcomeVisible {
             NSApp.setActivationPolicy(.regular)
             ensureApplicationMenuItems()
         } else {
@@ -643,7 +513,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         guard let window = notification.object as? NSWindow else { return }
 
         // Update dock icon visibility when a managed window closes.
-        if window === settingsWindow || window === aboutWindow || window === welcomeWindow || window === licenseNoticeWindow {
+        if window === settingsWindow || window === aboutWindow || window === welcomeWindow {
             if window === settingsWindow {
                 settingsWindow = nil
             }
@@ -658,14 +528,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
                 // keeps running in the monitor; only the window's polling stops.
                 setupModel?.windowWillClose()
                 setupModel = nil
-                // The introduction has been seen, so the first-run deferral is
-                // over whether or not the helper was approved. Starting here
-                // rather than when the window opens keeps Sparkle's own
-                // permission prompt from stacking on top of the welcome.
-                _ = startUpdaterIfNeeded()
-            }
-            if window === licenseNoticeWindow {
-                licenseNoticeWindow = nil
             }
             DispatchQueue.main.async { [weak self] in
                 self?.updateDockIconVisibility()
@@ -741,108 +603,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         presentSetupWindow(model: model)
     }
 
-    /// After a license is activated in Settings, end with Ping Protection
-    /// on: at once when the helper is ready, after approval when it is not
-    /// approved yet, and after Repair when it is approved but not
-    /// answering. The decisions are `LicenseActivationFollowUp` and
-    /// `LicenseActivationProtection` in Core.
-    private func continueSetupAfterLicenseActivation() {
-        // A read of the registration, so a change made in System Settings
-        // moments ago is not hidden by the status cache.
-        PingWardenMonitor.shared.refreshHelperStatus()
-        let openWindow = setupModel.map {
-            LicenseActivationFollowUp.OpenWindow(mode: $0.mode, step: $0.step)
-        }
-        let followUp = LicenseActivationFollowUp.decide(
-            canEnableProtection: LicenseManager.shared.canEnableProtection,
-            helperStatus: OnboardingModel.liveStatus(),
-            helperResponding: !protectionExperience.shouldOfferHelperRepair,
-            openWindow: welcomeWindow == nil ? nil : openWindow
-        )
-        log.info("License activated; setup follow-up: \(String(describing: followUp), privacy: .public)")
-        switch followUp {
-        case .none:
-            return
-        case .turnProtectionOn:
-            Task { await turnOnProtectionAfterLicense(repairsSilentHelper: true) }
-        case .openApproval:
-            // Setup turns protection on when approval finishes.
-            showSetupWindow(mode: .finishSetup)
-        case .showApprovalInOpenWindow:
-            setupModel?.showApprovalAfterLicense()
-            bringSetupWindowForward()
-        case .bringOpenWindowForward:
-            // Approval turns protection on by itself; a Repair in progress
-            // is told to.
-            if setupModel?.mode == .repair {
-                setupModel?.turnsProtectionOnWhenRepaired = true
-            }
-            bringSetupWindowForward()
-        case .repairHelper:
-            Task { await repairHelperAfterLicense() }
-        }
-    }
-
-    /// Turn protection on through the toggle's own path. When that finds
-    /// the helper silent (its silence was not yet known), continue with
-    /// Repair once, as a known-silent helper would have.
-    private func turnOnProtectionAfterLicense(repairsSilentHelper: Bool) async {
-        let decision = await protectionExperience.turnOnProtectionAfterLicenseActivation()
-        updateMenuItem()
-        guard decision == .turnOn, repairsSilentHelper,
-              !protectionExperience.isTerminating,
-              !PingWardenMonitor.shared.isMonitoringActive,
-              protectionExperience.shouldOfferHelperRepair,
-              OnboardingModel.liveStatus() == .enabled else { return }
-        log.info("Protection did not turn on after license activation; the helper is silent, so Repair follows")
-        if let setupModel, welcomeWindow != nil,
-           setupModel.mode == .repair || setupModel.step == .approve {
-            if setupModel.mode == .repair { setupModel.turnsProtectionOnWhenRepaired = true }
-            bringSetupWindowForward()
-            return
-        }
-        await repairHelperAfterLicense()
-    }
-
-    /// Repair after a license activation, as from the Repair… menu item:
-    /// check whether the helper answers, and open the Repair screen (or
-    /// switch an open setup window to it in place) only when it must be
-    /// approved again. That screen waits for Approve Helper, and a
-    /// successful Repair turns protection on.
-    private func repairHelperAfterLicense() async {
-        let check = await protectionExperience.checkHelperForRepair()
-        guard !protectionExperience.isTerminating else { return }
-        switch check {
-        case .needsApproval:
-            showSetupWindow(mode: .repair)
-            setupModel?.showRepairAfterLicense()
-        case .finished(let report):
-            if report.title == RepairResultCopy.successTitle {
-                await turnOnProtectionAfterLicense(repairsSilentHelper: false)
-                return
-            }
-            // The check could not finish its work; say why, as the menu's
-            // Repair does.
-            updateMenuItem()
-            let result = NSAlert()
-            result.messageText = report.title
-            result.informativeText = report.message
-            result.alertStyle = .informational
-            result.addButton(withTitle: "OK")
-            result.runModal()
-        }
-    }
-
-    /// The setup window comes to the front in every interface mode,
-    /// including a hidden Dock icon or Control Center Only: the window
-    /// shows a Dock icon while it is open.
-    private func bringSetupWindowForward() {
-        guard let welcomeWindow else { return }
-        NSApp.setActivationPolicy(.regular)
-        welcomeWindow.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
     private func presentSetupWindow(model: OnboardingModel) {
         let setupView = OnboardingView(model: model)
 #if DEBUG
@@ -894,7 +654,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         setupWindowObservation = model.objectWillChange.sink { [weak self] in
             Task { @MainActor in self?.fitSetupWindow(animate: true) }
         }
-        CrashReporter.record(.breadcrumb(.setupWindowOpened))
 
         // Show dock icon while the setup window is open
         NSApp.setActivationPolicy(.regular)
@@ -951,78 +710,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         }
     }
 
-    // MARK: - License Transition Notice
-
-    private func presentDueLicenseNotice(allowBackground: Bool = false) {
-        let license = LicenseManager.shared
-        guard !isTerminating else { return }
-        guard license.isGrandfathered else {
-            if licenseNoticeWindow != nil { closeLicenseNoticeWindow() }
-            return
-        }
-        guard licenseNoticeWindow == nil, welcomeWindow?.isVisible != true,
-              !isStatusMenuOpen, !protectionExperience.gameModeActive,
-              sessionCoordinator.phase == .idle, !license.isVerifying,
-              license.storedLicenseKey == nil,
-              allowBackground || NSApp.isActive else { return }
-        let isReminder = license.transitionNoticeShown
-        guard !isReminder || license.transitionReminderIsDue else { return }
-        showLicenseTransitionNotice(isReminder: isReminder)
-    }
-
-    private func showLicenseTransitionNotice(isReminder: Bool) {
-        guard licenseNoticeWindow == nil,
-              LicenseManager.shared.isGrandfathered else { return }
-
-        let view = LicenseTransitionNoticeView(
-            isReminder: isReminder,
-            onOpenLicenseSettings: { [weak self] in
-                self?.closeLicenseNoticeWindow()
-                self?.settingsNavigation.selectedSection = .license
-                self?.openSettings()
-            },
-            onDismiss: { [weak self] in
-                self?.closeLicenseNoticeWindow()
-            }
-        )
-
-        let hostingController = NSHostingController(rootView: view)
-        // The window owns its size; see showAbout.
-        hostingController.sizingOptions = []
-        hostingController.view.frame = NSRect(origin: .zero, size: LicenseTransitionNoticeView.contentSize)
-
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: LicenseTransitionNoticeView.contentSize),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentViewController = hostingController
-        window.title = isReminder ? "Keep Ping Protection After Your Transition" : "Ping Warden License Transition"
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
-        window.backgroundColor = .clear
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-
-        licenseNoticeWindow = window
-        LicenseManager.shared.recordTransitionNoticePresented()
-        CrashReporter.record(.breadcrumb(.licenseNoticeWindowOpened))
-
-        NSApp.setActivationPolicy(.regular)
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        ensureApplicationMenuItems()
-    }
-
-    private func closeLicenseNoticeWindow() {
-        licenseNoticeWindow?.close()
-        licenseNoticeWindow = nil
-        updateDockIconVisibility()
-    }
-
 #if DEBUG
     private func showDebugWindow(named name: String) {
         switch name {
@@ -1037,9 +724,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             openSettings()
         case "targets":
             settingsNavigation.selectedSection = .targets
-            openSettings()
-        case "license":
-            settingsNavigation.selectedSection = .license
             openSettings()
         case "advanced":
             settingsNavigation.selectedSection = .advanced
@@ -1171,29 +855,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         settingsItem.image = menuSymbol("gearshape")
         statusMenu?.addItem(settingsItem)
 
-        // Release notes for the version just installed, offered until opened.
-        if let whatsNewVersion {
-            let whatsNewItem = NSMenuItem(
-                title: "What's New in \(whatsNewVersion)…",
-                action: #selector(openWhatsNew),
-                keyEquivalent: ""
-            )
-            whatsNewItem.target = self
-            whatsNewItem.tag = Self.whatsNewMenuItemTag
-            whatsNewItem.image = menuSymbol("sparkles")
-            statusMenu?.addItem(whatsNewItem)
-        }
-
-        // Check for Updates (Sparkle)
-        let updateItem = NSMenuItem(
-            title: "Check for Updates…",
-            action: #selector(checkForUpdates),
-            keyEquivalent: ""
-        )
-        updateItem.target = self
-        updateItem.image = menuSymbol("arrow.trianglehead.2.clockwise.rotate.90")
-        statusMenu?.addItem(updateItem)
-
         let helpItem = NSMenuItem(title: "Help and Documentation", action: #selector(openDocumentation), keyEquivalent: "")
         helpItem.target = self
         helpItem.image = menuSymbol("questionmark.circle")
@@ -1208,19 +869,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         aboutItem.target = self
         aboutItem.image = menuSymbol("info.circle")
         statusMenu?.addItem(aboutItem)
-
-        // Shown only while unlicensed; the license pane carries the donation
-        // conversion path, so the menu no longer needs a Donate item.
-        let licenseItem = NSMenuItem(
-            title: "Buy a License…",
-            action: #selector(openLicenseSettings),
-            keyEquivalent: ""
-        )
-        licenseItem.target = self
-        licenseItem.tag = 170
-        licenseItem.image = menuSymbol("checkmark.seal")
-        licenseItem.isHidden = LicenseManager.shared.hasValidPaidLicense
-        statusMenu?.addItem(licenseItem)
 
         statusMenu?.addItem(NSMenuItem.separator())
 
@@ -1264,14 +912,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         launchReasonState.record(reason)
     }
 
-    private func settleLaunchPresentation(_ step: LaunchPresentationGate.Step) {
-        guard launchPresentationGate.settle(step) else { return }
-        openSettingsIfNoVisibleEntryPoint()
-    }
-
     /// Control Center Only leaves no menu bar or Dock icon, so a launch the
     /// person started would otherwise show nothing at all. Runs once, after
-    /// the welcome and license notice decisions.
+    /// the welcome decision.
     private func openSettingsIfNoVisibleEntryPoint() {
         let preferences = PingWardenPreferences.shared
         guard InterfaceVisibilityPolicy.shouldOpenSettingsAtLaunch(
@@ -1279,24 +922,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             controlCenterAvailable: ControlCenterSupport.isAvailableForCurrentApp(),
             showDockIconPreference: preferences.showDockIcon,
             launchReason: launchReasonState.reason,
-            welcomeVisible: welcomeWindow?.isVisible ?? false,
-            licenseNoticeVisible: licenseNoticeWindow?.isVisible ?? false
+            welcomeVisible: welcomeWindow?.isVisible ?? false
         ) else { return }
         log.info("Control Center Only has no app icon; opening Settings for a direct launch")
         openSettings()
-    }
-
-    /// Reads and clears the marker `updaterWillRelaunchApplication` leaves.
-    /// Clearing it here keeps a stale marker from silencing a later launch.
-    private func consumeUpdateRelaunchMarker() -> Bool {
-        let defaults = UserDefaults.standard
-        let timestamp = defaults.double(forKey: Self.updateRelaunchMarkerKey)
-        guard timestamp > 0 else { return false }
-        defaults.removeObject(forKey: Self.updateRelaunchMarkerKey)
-        return InterfaceVisibilityPolicy.isUpdateRelaunchMarkerFresh(
-            markedAt: Date(timeIntervalSince1970: timestamp),
-            now: Date()
-        )
     }
 
     @objc func openSettings() {
@@ -1374,12 +1003,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             return
         }
 
-        let settingsView = SettingsView(
-            navigationModel: settingsNavigation,
-            onCheckForUpdates: { [weak self] in
-                self?.checkForUpdates()
-            }
-        )
+        let settingsView = SettingsView(navigationModel: settingsNavigation)
         let hostingController = NSHostingController(rootView: settingsView)
         // The window owns its size: minSize below and the root view's
         // minimum frame bound it. With the default .standardBounds the
@@ -1427,7 +1051,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         }
 
         settingsWindow = window
-        CrashReporter.record(.breadcrumb(.settingsWindowOpened))
         window.makeKeyAndOrderFront(nil)
         updateDockIconVisibility()
     }
@@ -1442,15 +1065,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 
         let aboutView = AboutView()
         let hostingController = NSHostingController(rootView: aboutView)
-        // The window owns its size, as Settings does. PING-WARDEN-D (#144)
-        // was AppKit's fatal "more Update Constraints in Window passes than
-        // there are views" exception, raised while a window took its frame
-        // from its hosting view's constraints and the new frame invalidated
-        // the hosting view's safe area again. With the default
-        // .standardBounds, About and the license notice were the only
-        // windows here sized that way. The style mask is also set when the
-        // window is made, so adding the full-size content view no longer
-        // resizes an open window.
+        // Sizing the window from its hosting view crashed AppKit with too
+        // many constraint passes (#144), so the window owns its size.
         hostingController.sizingOptions = []
         let initialSize = NSSize(width: 420, height: 480)
         hostingController.view.frame = NSRect(origin: .zero, size: initialSize)
@@ -1472,7 +1088,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
         window.delegate = self
 
         aboutWindow = window
-        CrashReporter.record(.breadcrumb(.aboutWindowOpened))
 
         // Show dock icon when about window opens
         NSApp.setActivationPolicy(.regular)
@@ -1483,88 +1098,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     }
 
     @objc private func openDocumentation() {
-        NSWorkspace.shared.open(LicenseManager.documentationURL)
-    }
-
-    // MARK: - What's New
-
-    /// Sparkle shows release notes only before an update installs, so someone
-    /// who clicked Install without reading has nothing in the app afterwards
-    /// that says what changed. Decide once per launch whether to offer them.
-    private func prepareWhatsNewOffer() {
-        guard let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String else {
-            log.warning("Bundle has no CFBundleShortVersionString; skipping What's New")
-            return
-        }
-        let preferences = PingWardenPreferences.shared
-        guard let lastSeenVersion = preferences.lastSeenWhatsNewVersion else {
-            // Fresh install: nothing to catch up on. Record the baseline so
-            // the next update is the first one offered.
-            preferences.lastSeenWhatsNewVersion = currentVersion
-            return
-        }
-        guard WhatsNewPolicy.shouldOffer(lastSeenVersion: lastSeenVersion, currentVersion: currentVersion) else {
-            return
-        }
-        log.info("Offering What's New for \(currentVersion, privacy: .public); last seen \(lastSeenVersion, privacy: .public)")
-        whatsNewVersion = currentVersion
-    }
-
-    /// Opens the release notes for the running version and retires the offer
-    /// from both menus. The menu item is the whole surface: no window, no alert.
-    @objc func openWhatsNew() {
-        guard let version = whatsNewVersion else { return }
-        if let url = WhatsNewPolicy.releaseNotesURL(for: version) {
-            NSWorkspace.shared.open(url)
-        } else {
-            log.error("No release notes URL for version \(version, privacy: .public)")
-        }
-        PingWardenPreferences.shared.lastSeenWhatsNewVersion = version
-        whatsNewVersion = nil
-        if let menu = statusMenu,
-           let item = menu.items.first(where: { $0.tag == Self.whatsNewMenuItemTag }) {
-            menu.removeItem(item)
-        }
-    }
-
-    @objc private func openLicenseSettings() {
-        settingsNavigation.selectedSection = .license
-        openSettings()
-    }
-
-    @objc func checkForUpdates() {
-        guard startUpdaterIfNeeded() else {
-            presentUpdaterStartFailureAlert()
-            return
-        }
-
-        if let activeFeedURL = updaterController?.updater.feedURL?.absoluteString {
-            log.info("Checking Sparkle updates from feed: \(activeFeedURL, privacy: .public)")
-        }
-        
-        updaterController?.updater.checkForUpdates()
-    }
-
-    @discardableResult
-    private func startUpdaterIfNeeded() -> Bool {
-        guard let updater = updaterController?.updater else {
-            return false
-        }
-
-        if updaterHasStarted {
-            return true
-        }
-
-        do {
-            try updater.start()
-            updaterHasStarted = true
-            updaterStartupError = nil
-            return true
-        } catch {
-            updaterStartupError = error
-            log.error("Sparkle updater failed to start: \(error.localizedDescription, privacy: .public)")
-            return false
-        }
+        NSWorkspace.shared.open(ProjectLinks.repository)
     }
 
     private func ensureApplicationMenuItems() {
@@ -1579,8 +1113,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             aboutItem.action = #selector(showAbout)
         }
 
-        // Check for Updates is declared as a SwiftUI command, which survives
-        // the menu rebuilds that removed an item inserted here.
         if let settingsItem = appMenu.items.first(where: { $0.keyEquivalent == "," || $0.title == "Settings…" }) {
             settingsItem.title = "Settings…"
             settingsItem.target = self
@@ -1594,72 +1126,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             )
             settingsItem.target = self
             appMenu.insertItem(settingsItem, at: aboutIndex + 1)
-        }
-    }
-
-    private func presentUpdaterStartFailureAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Unable to Check for Updates"
-        let errorText: String
-        if let startupError = updaterStartupError as NSError? {
-            errorText = "\(startupError.domain) \(startupError.code): \(startupError.localizedDescription)"
-        } else {
-            errorText = "The updater did not provide an error message."
-        }
-        alert.informativeText = "Ping Warden could not start its updater. You can retry, open the latest release in your browser, or copy the error for troubleshooting.\n\n\(errorText)"
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Retry")
-        alert.addButton(withTitle: "Download Latest Release")
-        alert.addButton(withTitle: "Copy Error")
-        alert.addButton(withTitle: "Cancel")
-
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            if startUpdaterIfNeeded() {
-                updaterController?.updater.checkForUpdates()
-            }
-        case .alertSecondButtonReturn:
-            if let releasesURL = URL(string: "https://github.com/oliverames/ping-warden/releases/latest") {
-                NSWorkspace.shared.open(releasesURL)
-            }
-        case .alertThirdButtonReturn:
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(errorText, forType: .string)
-        default:
-            break
-        }
-    }
-
-    /// Sparkle calls this on every update check. Returning nil falls back to
-    /// the `SUFeedURL` in Info.plist (stable channel). Returning the beta URL
-    /// makes Sparkle pull `appcast-beta.xml` for opted-in users. The beta
-    /// appcast is on the same gh-pages branch, signed with the same EdDSA
-    /// key, just a separate XML file.
-    nonisolated func feedURLString(for updater: SPUUpdater) -> String? {
-        guard PingWardenPreferences.shared.betaChannelEnabled else {
-            return nil
-        }
-        return "https://oliverames.github.io/ping-warden/appcast-beta.xml"
-    }
-
-    /// "Install and Relaunch" starts a new process that would otherwise count
-    /// as a direct launch and open Settings in Control Center Only. The
-    /// marker tells the next launch to stay silent.
-    nonisolated func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: AppDelegate.updateRelaunchMarkerKey)
-    }
-
-    nonisolated func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
-        let nsError = error as NSError
-        log.error("Sparkle update cycle aborted: [\(nsError.domain, privacy: .public):\(nsError.code)] \(nsError.localizedDescription, privacy: .public)")
-    }
-    
-    nonisolated func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: (any Error)?) {
-        if let error {
-            let nsError = error as NSError
-            log.error("Sparkle update cycle finished with error for \(String(describing: updateCheck), privacy: .public): [\(nsError.domain, privacy: .public):\(nsError.code)] \(nsError.localizedDescription, privacy: .public)")
-        } else {
-            log.info("Sparkle update cycle finished successfully for \(String(describing: updateCheck), privacy: .public)")
         }
     }
 
@@ -1753,7 +1219,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        menu.items.first(where: { $0.tag == 170 })?.isHidden = LicenseManager.shared.hasValidPaidLicense
         guard menu === statusMenu else { return }
         isStatusMenuOpen = true
         syncMenuMetricsTargetIfNeeded()
@@ -1769,9 +1234,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     func menuDidClose(_ menu: NSMenu) {
         guard menu === statusMenu else { return }
         isStatusMenuOpen = false
-        DispatchQueue.main.async { [weak self] in
-            self?.presentDueLicenseNotice(allowBackground: true)
-        }
         if PingWardenPreferences.shared.showMenuDropdownMetrics {
             stopMenuMetricsMonitoring()
         }
@@ -1799,16 +1261,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             let succeeded = await protectionExperience.setPersistentProtection(shouldEnable)
             updateMenuItem()
             guard !succeeded else { return }
-            if shouldEnable,
-               protectionExperience.lastError?.localizedCaseInsensitiveContains("license") == true {
-                presentLicenseDeniedAlert()
-            } else {
-                presentMenuActionFailure(
-                    title: shouldEnable
-                        ? "Ping Protection Could Not Turn On"
-                        : "Ping Protection Could Not Turn Off"
-                )
-            }
+            presentMenuActionFailure(
+                title: shouldEnable
+                    ? "Ping Protection Could Not Turn On"
+                    : "Ping Protection Could Not Turn Off"
+            )
         }
     }
 
@@ -1841,7 +1298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     /// Offer Repair on the app's own initiative, once per failure episode
     /// (the coordinator decides when). Returns false when now is a bad
     /// moment, and the offer waits: a game is in front, the setup window
-    /// is already handling the helper, the menu or another notice is open.
+    /// is already handling the helper, or the menu is open.
     /// A Dashboard or General settings pane already in front shows its own
     /// Repair row, which counts as the offer.
     private func presentRepairOffer(for problem: HelperRepairOffer.Problem) -> Bool {
@@ -1851,7 +1308,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
            settingsNavigation.selectedSection == .dashboard || settingsNavigation.selectedSection == .general {
             return true
         }
-        guard !isStatusMenuOpen, licenseNoticeWindow == nil,
+        guard !isStatusMenuOpen,
               NSApp.isActive || !protectionExperience.gameModeActive,
               protectionExperience.canRepairHelper else { return false }
         log.info("Offering Repair for a helper that is \(problem.rawValue, privacy: .public)")
@@ -1887,28 +1344,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
             result.alertStyle = .informational
             result.addButton(withTitle: "OK")
             result.runModal()
-        }
-    }
-
-    private func presentLicenseDeniedAlert() {
-        // The coordinator's message already says the same thing, so the
-        // alert states it once rather than appending purchase directions.
-        let alert = NSAlert()
-        alert.messageText = "Ping Protection Requires a License"
-        alert.informativeText = LicenseCopy.required(
-            transitionEnded: LicenseManager.shared.grandfatherWindowExpired
-        )
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Buy a License…")
-        alert.addButton(withTitle: "Enter License Key…")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "license-required-alert"))
-        case .alertSecondButtonReturn:
-            openLicenseSettings()
-        default:
-            break
         }
     }
 
@@ -2093,111 +1528,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
 
 }
 
-// MARK: - License Transition Notice View
-
-/// Introductory notice and deadline reminders share the purchase and activation flow.
-struct LicenseTransitionNoticeView: View {
-    static let contentSize = CGSize(width: 480, height: 560)
-
-    let isReminder: Bool
-    @ObservedObject private var license = LicenseManager.shared
-    private var daysRemaining: Int? { license.grandfatherDaysRemaining }
-    let onOpenLicenseSettings: () -> Void
-    let onDismiss: () -> Void
-
-    @ScaledMetric(relativeTo: .largeTitle) private var heroIconSize: CGFloat = 40
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                Image(systemName: "checkmark.seal")
-                    .font(.system(size: heroIconSize, weight: .light))
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                    .padding(.top, 24)
-
-                VStack(spacing: 10) {
-                    Text(isReminder ? "Keep Ping Protection After Your Transition" : "Ping Warden Is Moving to a License")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .multilineTextAlignment(.center)
-
-                    VStack(spacing: 8) {
-                        if let daysRemaining {
-                            Text("Your transition has \(daysRemaining) \(daysRemaining == 1 ? "day" : "days") remaining.")
-                                .fontWeight(.semibold)
-                            Text("Buy and activate a one-time $15 license before the transition ends to keep Ping Protection available. Until then, protection continues to work on this Mac.")
-                        }
-                        Text(LicenseReminderPolicy.followUpMessage(daysRemaining: daysRemaining))
-                        Text("Everything else in Ping Warden stays free, and the source code remains open under the MIT License.")
-                    }
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 380)
-                }
-                .padding(.top, 16)
-                .padding(.horizontal, 24)
-
-                VStack(spacing: 8) {
-                    Text("Already supported Ping Warden?")
-                        .font(.headline)
-                    Text("If you donated through the Buy Me a Coffee link before version 4, email \(LicenseManager.donationConversionEmail) and that support will be honored as a full license.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Email \(LicenseManager.donationConversionEmail)") {
-                        NSWorkspace.shared.open(URL(string: "mailto:\(LicenseManager.donationConversionEmail)?subject=Ping%20Warden%20license%20from%20donation")!)
-                    }
-                    .controlSize(.small)
-                }
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 380)
-                .padding(.top, 20)
-                .padding(.horizontal, 24)
-
-                VStack(spacing: 10) {
-                    Button {
-                        onDismiss()
-                        NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "transition-notice"))
-                    } label: {
-                        Text("Buy Ping Protection · $15").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    Button {
-                        onOpenLicenseSettings()
-                    } label: {
-                        Text("Enter a License Key")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Text("Continue Using Ping Warden")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                    .keyboardShortcut(.cancelAction)
-                }
-                .padding(.top, 24)
-                .padding(.horizontal, 32)
-                .padding(.bottom, 24)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(width: Self.contentSize.width, height: Self.contentSize.height)
-        .background(.regularMaterial)
-        .accessibilityElement(children: .contain)
-    }
-}
-
 // MARK: - Settings View
 
 @MainActor
@@ -2206,16 +1536,7 @@ final class SettingsNavigationModel: ObservableObject {
 }
 
 struct SettingsView: View {
-    let onCheckForUpdates: () -> Void
     @ObservedObject var navigationModel: SettingsNavigationModel
-
-    init(
-        navigationModel: SettingsNavigationModel,
-        onCheckForUpdates: @escaping () -> Void = {}
-    ) {
-        self.navigationModel = navigationModel
-        self.onCheckForUpdates = onCheckForUpdates
-    }
 
     var body: some View {
         NavigationSplitView {
@@ -2234,10 +1555,7 @@ struct SettingsView: View {
             .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 220)
         } detail: {
-            SettingsContentView(
-                section: navigationModel.selectedSection,
-                onCheckForUpdates: onCheckForUpdates
-            )
+            SettingsContentView(section: navigationModel.selectedSection)
             .navigationTitle(navigationModel.selectedSection.rawValue)
         }
         .navigationSplitViewStyle(.prominentDetail)
@@ -2273,7 +1591,6 @@ private extension View {
 enum SettingsSection: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case general = "General"
-    case license = "License"
     case targets = "Targets"
     case automation = "Automation"
     case advanced = "Advanced"
@@ -2284,7 +1601,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "chart.xyaxis.line"
         case .general: return "gearshape"
-        case .license: return "checkmark.seal"
         case .targets: return "server.rack"
         case .automation: return "sparkles"
         case .advanced: return "wrench.and.screwdriver"
@@ -2294,7 +1610,6 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct SettingsContentView: View {
     let section: SettingsSection
-    let onCheckForUpdates: () -> Void
 
     var body: some View {
         Group {
@@ -2302,9 +1617,7 @@ struct SettingsContentView: View {
             case .dashboard:
                 dashboardContent
             case .general:
-                GeneralSettingsContent(onCheckForUpdates: onCheckForUpdates)
-            case .license:
-                LicenseSettingsContent()
+                GeneralSettingsContent()
             case .targets:
                 TargetsSettingsContent()
                     .settingsScrollEdgeTreatment()
@@ -2338,7 +1651,7 @@ struct SettingsContentView: View {
 
 // MARK: - Settings Components
 
-private let settingsLog = Logger(subsystem: "com.amesvt.pingwarden", category: "Settings")
+private let settingsLog = Logger(subsystem: "com.salmanfrs.pingwarden", category: "Settings")
 
 /// Small pill badge ("Unavailable", "Needs Permission", etc.) with WCAG AA contrast.
 /// White text on a darker-tinted fill passes >=4.5:1 in both light and dark
@@ -2482,7 +1795,6 @@ private struct HelperRepairControl: View {
 }
 
 struct GeneralSettingsContent: View {
-    let onCheckForUpdates: () -> Void
     @StateObject private var monitorState = MonitoringStateStore()
     @ObservedObject private var protectionExperience = ProtectionExperienceCoordinator.shared
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -2492,10 +1804,6 @@ struct GeneralSettingsContent: View {
     @State private var controlCenterAvailability = ControlCenterSupport.availabilityForCurrentApp()
     @State private var showingControlCenterConfirm = false
     @State private var settingsErrorMessage: String?
-
-    init(onCheckForUpdates: @escaping () -> Void = {}) {
-        self.onCheckForUpdates = onCheckForUpdates
-    }
 
     /// Either icon-hiding mode removes the menu, and each fixes the Dock
     /// icon one way, so those options have nothing to act on while it is on.
@@ -2531,10 +1839,7 @@ struct GeneralSettingsContent: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Spacer(minLength: 16)
-
-                    Button("Check for Updates…", action: onCheckForUpdates)
-                        .buttonStyle(.bordered)
+                    Spacer()
                 }
                 .padding(.vertical, 8)
             }
@@ -2582,18 +1887,9 @@ struct GeneralSettingsContent: View {
                 HelperRepairControl(onlyWhenNeeded: true)
 
                 if let error = protectionExperience.lastError {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                        if error.localizedCaseInsensitiveContains("license") {
-                            Button("Buy a License…") {
-                                NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "settings-general"))
-                            }
-                            .buttonStyle(.link)
-                            .font(.caption)
-                        }
-                    }
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
 
                 LabeledContent("Status") {
@@ -2873,213 +2169,6 @@ struct GeneralSettingsContent: View {
     }
 }
 
-// MARK: - License Settings Content
-
-struct LicenseSettingsContent: View {
-    @ObservedObject private var license = LicenseManager.shared
-    @ObservedObject private var protectionExperience = ProtectionExperienceCoordinator.shared
-    @State private var keyField = ""
-    @State private var licenseMessage: String?
-
-    var body: some View {
-        Form {
-            Section {
-                // Title and caption spaced like every other Settings row.
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Image(systemName: license.canEnableProtection ? "checkmark.seal.fill" : "seal")
-                            .foregroundStyle(license.canEnableProtection ? .green : .secondary)
-                            .accessibilityHidden(true)
-                        Text(license.hasValidPaidLicense ? "Licensed" : (license.isGrandfathered ? "Free Transition" : "Unlicensed"))
-                            .font(.headline)
-                    }
-
-                    Text(statusCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } header: {
-                Text("Ping Protection License")
-            } footer: {
-                Text("Ping Warden is open source, and everything except enabling Ping Protection is free. A license keeps Ping Protection available and supports development.")
-            }
-
-            if license.isGrandfathered {
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let days = license.grandfatherDaysRemaining {
-                            Text("Ping Warden is moving to a paid model for Ping Protection. As an existing user, this Mac keeps full Ping Protection for \(days) more days, free and with no action needed.")
-                                .font(.caption)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Text("Ping Warden is moving to a paid model for Ping Protection. As an existing user, this Mac keeps full Ping Protection during a 90-day transition, free and with no action needed.")
-                                .font(.caption)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Text("After the transition ends, a $15 one-time license keeps Ping Protection available. Everything else in the app stays free, and the source remains open under MIT.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("If you donated through the Buy Me a Coffee link before version 4, thank you. Email \(LicenseManager.donationConversionEmail) and that support will be honored as a full license.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Email \(LicenseManager.donationConversionEmail)") {
-                            NSWorkspace.shared.open(URL(string: "mailto:\(LicenseManager.donationConversionEmail)?subject=Ping%20Warden%20license%20from%20donation")!)
-                        }
-                    }
-                } header: {
-                    Text("Transition Period")
-                } footer: {
-                    Text("Enter a license key below any time during the transition. Nothing changes until it ends.")
-                }
-
-                keyEntrySection
-            } else if !license.canEnableProtection {
-                keyEntrySection
-
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("If you donated through the Buy Me a Coffee link before version 4, thank you. Email \(LicenseManager.donationConversionEmail) and that support will be honored as a full license.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Button("Email \(LicenseManager.donationConversionEmail)") {
-                            NSWorkspace.shared.open(URL(string: "mailto:\(LicenseManager.donationConversionEmail)?subject=Ping%20Warden%20license%20from%20donation")!)
-                        }
-                    }
-                } header: {
-                    Text("Donated Before?")
-                }
-            }
-
-            if let error = protectionExperience.lastError,
-               error.localizedCaseInsensitiveContains("license") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    Button("Buy a License…") {
-                        NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "license-donor"))
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .settingsScrollEdgeTreatment()
-    }
-
-    private var statusCaption: String {
-        // The entry section disappears once a key verifies, so the status
-        // section is where that confirmation stays visible. LicenseManager
-        // does not expose the verification date, so none is shown.
-        if license.hasValidPaidLicense {
-            return "License verified. Ping Protection is available on this Mac."
-        }
-        if license.isGrandfathered {
-            return "Full Ping Protection continues free during the transition period."
-        }
-        if license.canEnableProtection {
-            return "Ping Protection is available on this Mac."
-        }
-        return "Enter a license key to enable Ping Protection."
-    }
-
-    /// Plain text rather than a secure field, so a paste that picked up too
-    /// much or too little is visible. The key is still stored in the keychain.
-    private var keyEntrySection: some View {
-        Section("Enter License Key") {
-            // The label sits above a full-width field: beside it, a grouped
-            // form right-aligns the field's text, and a key reads from its start.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("License Key")
-                    .accessibilityHidden(true)
-                TextField("License Key", text: $keyField, prompt: Text("Paste your key from the Gumroad receipt"))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.leading)
-                    .autocorrectionDisabled()
-                    .onSubmit { submitLicenseKey() }
-            }
-
-            HStack {
-                Button {
-                    submitLicenseKey()
-                } label: {
-                    BusyButtonLabel(title: "Verify", isBusy: license.isVerifying)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(license.isVerifying || keyField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Buy a License…") {
-                    NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "license-pane"))
-                }
-            }
-            Text("$15 once, for the Macs you own. Stays valid offline for 14 days between checks.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let licenseMessage {
-                Label(licenseMessage, systemImage: messageIcon)
-                    .font(.caption)
-                    .foregroundStyle(messageIsError ? .red : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var licenseMessageForLastResult: String {
-        Self.message(for: license.lastVerificationResult)
-    }
-
-    /// What a failed verification tells the person. Shared with the setup
-    /// window's license step.
-    static func message(for result: LicensePolicy.Verification?) -> String {
-        switch result {
-        case .revoked:
-            // Gumroad answers the same way for a mistyped key and a refunded
-            // or disabled one, so the copy blames neither.
-            return LicenseCopy.keyNotAccepted
-        case .invalidKey:
-            return "That key does not look like a Gumroad license key. Check it and try again."
-        case .unreachable:
-            return "Gumroad could not be reached. Connect to the internet and try again."
-        case .valid, .none:
-            return "The license could not be verified."
-        }
-    }
-
-    private func submitLicenseKey() {
-        guard !license.isVerifying,
-              !keyField.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let submittedKey = keyField
-        Task {
-            // Two Return events may enqueue before the first task starts.
-            guard !license.isVerifying else { return }
-            let entitled = await license.verify(key: submittedKey)
-            licenseMessage = entitled
-                ? "License verified. Ping Protection is available."
-                : licenseMessageForLastResult
-            if entitled, keyField == submittedKey { keyField = "" }
-            // Without an approved helper, setup continues at approval.
-            if entitled { OnboardingPresenter.licenseActivated() }
-        }
-    }
-
-    private var messageIcon: String {
-        if case .valid = license.lastVerificationResult { return "checkmark.circle.fill" }
-        return "exclamationmark.triangle.fill"
-    }
-
-    private var messageIsError: Bool {
-        if case .valid = license.lastVerificationResult { return false }
-        return true
-    }
-}
-
 // MARK: - Automation Settings Content
 
 struct AutomationSettingsContent: View {
@@ -3166,55 +2255,9 @@ struct AdvancedSettingsContent: View {
     /// A second confirmation while removal runs would start a second
     /// unregister and restore sequence on top of the first.
     @State private var isPreparingRemoval = false
-    @State private var crashReportingRelaunchRequired = CrashReporter.relaunchRequired
-    @State private var crashReportingEnabled = PingWardenPreferences.shared.isCrashReportingEnabled
-    @State private var betaChannelEnabled = PingWardenPreferences.shared.betaChannelEnabled
 
     var body: some View {
         Form {
-            Section("Privacy") {
-                Toggle(isOn: $crashReportingEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
-                            Text("Send Crash Reports")
-                            if crashReportingRelaunchRequired {
-                                // A pending step, like Fullscreen Detection
-                                // Off, not a feature that is unavailable.
-                                StatusBadge(text: "Relaunch Required", tint: .informational)
-                            }
-                        }
-                        Text("Sends anonymous crash reports, helper error codes, and app session counts. It never sends ping targets, IP addresses, host names, network names, or license keys. Turning this off takes effect immediately, after one record that the current session ended. Turning it on takes effect after you relaunch Ping Warden.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityLabel("Send Crash Reports")
-                .accessibilityHint(crashReportingRelaunchRequired
-                    ? "Relaunch required to start sending anonymous crash and error reports. Ping targets, IP addresses, host names, network names, and license keys are never sent."
-                    : "Sends anonymous crash reports, helper error codes, and session counts, never ping targets, IP addresses, host names, network names, or license keys")
-                .onChangeCompat(of: crashReportingEnabled) { newValue in
-                    PingWardenPreferences.shared.isCrashReportingEnabled = newValue
-                    if !newValue { CrashReporter.stop() }
-                    crashReportingRelaunchRequired = CrashReporter.relaunchRequired
-                }
-            }
-
-            Section("Updates") {
-                Toggle(isOn: $betaChannelEnabled) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Receive Beta Updates")
-                        Text("Opt in to pre-release builds. Betas may have bugs and are released ahead of the stable channel. Takes effect at the next update check.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityLabel("Receive Beta Updates")
-                .accessibilityHint("Switches future update checks between the stable and pre-release channels")
-                .onChangeCompat(of: betaChannelEnabled) { newValue in
-                    PingWardenPreferences.shared.betaChannelEnabled = newValue
-                }
-            }
-
             Section("Diagnostics") {
                 LabeledContent {
                     Button {
@@ -3302,9 +2345,7 @@ struct AdvancedSettingsContent: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            // Matches clearLocalDataForRemoval: LicenseManager.resetForRemoval
-            // deletes the saved key and the transition marker as well.
-            Text("This turns off Ping Protection, unregisters the helper and Launch at Login, and deletes your settings, custom ping targets, latency session history, this Mac's saved license key, and its license transition status. Keep your Gumroad receipt to enter the key again. Ping Warden then shows the app in Finder and quits, so you can move it to the Trash.")
+            Text("This turns off Ping Protection, unregisters the helper and Launch at Login, and deletes your settings, custom ping targets, and latency session history. Ping Warden then shows the app in Finder and quits, so you can move it to the Trash.")
         }
         .alert(
             resultAlert?.title ?? "",
@@ -3394,7 +2435,7 @@ struct AdvancedSettingsContent: View {
             let previousProtectionEnabled = PingWardenPreferences.shared.isMonitoringEnabled
             let launchAtLoginWasEnabled = SMAppService.mainApp.status == .enabled
             let helperService = SMAppService.daemon(
-                plistName: "com.amesvt.pingwarden.helper.plist"
+                plistName: "com.salmanfrs.pingwarden.helper.plist"
             )
             let helperWasEnabled = helperService.status == .enabled
 
@@ -3483,7 +2524,7 @@ struct AdvancedSettingsContent: View {
 
         if restoreHelper {
             let helperService = SMAppService.daemon(
-                plistName: "com.amesvt.pingwarden.helper.plist"
+                plistName: "com.salmanfrs.pingwarden.helper.plist"
             )
             if helperService.status != .enabled {
                 do {
@@ -3523,9 +2564,6 @@ struct AdvancedSettingsContent: View {
         // App Group preferences survive app deletion, so clear them only after
         // the helper has been turned off and unregistered successfully.
         try ProtectedSessionStore().removeAll()
-        LicenseManager.shared.resetForRemoval()
-        PingWardenPreferences.shared.isCrashReportingEnabled = false
-        CrashReporter.stop()
         PingWardenPreferences.shared.resetForRemoval()
         GeForceNOWDiscovery.clearCache()
         if let bundleID = Bundle.main.bundleIdentifier {
@@ -3588,8 +2626,6 @@ struct AboutView: View {
 
     @ScaledMetric(relativeTo: .largeTitle) private var heroIconSize: CGFloat = 64
 
-    @ObservedObject private var license = LicenseManager.shared
-
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
     }
@@ -3632,17 +2668,13 @@ struct AboutView: View {
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) {
-                        aboutLicenseLink
-                        aboutWebsiteLink
-                        aboutDocumentationLink
-                        aboutIssueLink
+                        aboutSourceLink
+                        aboutTroubleshootingLink
                     }
 
                     VStack(spacing: 8) {
-                        aboutLicenseLink
-                        aboutWebsiteLink
-                        aboutDocumentationLink
-                        aboutIssueLink
+                        aboutSourceLink
+                        aboutTroubleshootingLink
                     }
                 }
                 .buttonStyle(.link)
@@ -3686,35 +2718,13 @@ struct AboutView: View {
         .background(.regularMaterial)
     }
 
-    @ViewBuilder
-    private var aboutLicenseLink: some View {
-        if license.hasValidPaidLicense {
-            Text("Licensed")
-                .foregroundStyle(.secondary)
-        } else {
-            Button("Buy a License") {
-                NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "about"))
-            }
-        }
+    private var aboutSourceLink: some View {
+        Link("Source Code", destination: ProjectLinks.repository)
     }
 
-    private var aboutWebsiteLink: some View {
-        Link("Website", destination: LicenseManager.websiteURL)
+    private var aboutTroubleshootingLink: some View {
+        Link("Troubleshooting", destination: ProjectLinks.troubleshooting)
     }
-
-    private var aboutDocumentationLink: some View {
-        Link(
-            "Documentation",
-            destination: LicenseManager.documentationURL
-        )
-    }
-
-    private var aboutIssueLink: some View {
-        Link("Report an Issue", destination: Self.reportIssueURL)
-    }
-
-    /// Shared with the Help menu so both open the same issue chooser.
-    static let reportIssueURL = URL(string: "https://github.com/oliverames/ping-warden/issues/new/choose")!
 }
 
 // MARK: - Game Mode Detector
@@ -3729,7 +2739,7 @@ struct AboutView: View {
 /// path, because AWDL shares the Wi-Fi radio and cannot disturb Ethernet.
 final class GameModeDetector: @unchecked Sendable {
     private let detectionQueue = DispatchQueue(
-        label: "com.amesvt.pingwarden.game-mode-detection",
+        label: "com.salmanfrs.pingwarden.game-mode-detection",
         qos: .utility
     )
     private var timer: DispatchSourceTimer?
@@ -3738,7 +2748,7 @@ final class GameModeDetector: @unchecked Sendable {
     private var timerInterval: TimeInterval?
     private var isRunning = false
     private var isGameModeActive = false
-    private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "GameMode")
+    private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "GameMode")
     /// Cache of pid → isGame to avoid re-reading Info.plist every 2 seconds.
     /// Entries are evicted via `appDidTerminateObserver` so the cache cannot
     /// outgrow the set of currently-running apps for the session.
@@ -4212,12 +3222,6 @@ final class GameModeDetector: @unchecked Sendable {
 #Preview("Automation Settings") {
     AutomationSettingsContent()
         .frame(width: 450, height: 300)
-        .background(.regularMaterial)
-}
-
-#Preview("License Settings") {
-    LicenseSettingsContent()
-        .frame(width: 450, height: 350)
         .background(.regularMaterial)
 }
 

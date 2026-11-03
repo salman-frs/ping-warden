@@ -106,7 +106,6 @@ final class PingWardenPreferences {
     var lastKnownState = "unknown"
     var protectionPauseUntil: Date?
 }
-enum LicenseManager { static var launchGateAllowsProtection = true }
 final class NSAlert {
     enum Style { case critical }
     static var messages: [String] = []

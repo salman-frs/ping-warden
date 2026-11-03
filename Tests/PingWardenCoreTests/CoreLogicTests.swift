@@ -369,7 +369,7 @@ final class StateObserverRegistryTests: XCTestCase {
 
 final class HelperBundleValidatorTests: XCTestCase {
     private var fakeBundle: URL!
-    private let plistName = "com.amesvt.pingwarden.helper.plist"
+    private let plistName = "com.salmanfrs.pingwarden.helper.plist"
 
     override func setUpWithError() throws {
         fakeBundle = FileManager.default.temporaryDirectory
@@ -514,7 +514,7 @@ final class CustomPingTargetStoreTests: XCTestCase {
     private var store: CustomPingTargetStore!
 
     override func setUpWithError() throws {
-        suiteName = TestDefaultsSuite.name("com.amesvt.pingwarden.tests")
+        suiteName = TestDefaultsSuite.name("com.salmanfrs.pingwarden.tests")
         defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         store = CustomPingTargetStore(userDefaults: defaults)

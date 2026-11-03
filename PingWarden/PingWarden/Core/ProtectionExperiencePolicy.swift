@@ -15,7 +15,6 @@ enum ProtectionExperiencePolicy {
         var sessionPhase: ProtectionSessionPhase
         var sessionTrigger: ProtectedSessionTrigger?
         var pauseUntil: Date?
-        var licenseAllowsProtection: Bool
         /// The monitor holds a protection request, confirmed or reconnecting.
         var protectionRequested: Bool
         /// A protection command is waiting on the helper's reply.
@@ -30,7 +29,6 @@ enum ProtectionExperiencePolicy {
             sessionPhase: ProtectionSessionPhase,
             sessionTrigger: ProtectedSessionTrigger?,
             pauseUntil: Date?,
-            licenseAllowsProtection: Bool = true,
             protectionRequested: Bool = false,
             commandInFlight: Bool = false,
             helperResponding: Bool = true
@@ -41,7 +39,6 @@ enum ProtectionExperiencePolicy {
             self.sessionPhase = sessionPhase
             self.sessionTrigger = sessionTrigger
             self.pauseUntil = pauseUntil
-            self.licenseAllowsProtection = licenseAllowsProtection
             self.protectionRequested = protectionRequested
             self.commandInFlight = commandInFlight
             self.helperResponding = helperResponding
@@ -102,7 +99,7 @@ enum ProtectionExperiencePolicy {
     }
 
     static func shouldEnableProtection(for state: State, now: Date) -> Bool {
-        guard state.helperAvailable, state.licenseAllowsProtection, !isPaused(state, now: now) else {
+        guard state.helperAvailable, !isPaused(state, now: now) else {
             return false
         }
         return state.persistentProtectionEnabled || sessionRequiresProtection(state.sessionPhase)
@@ -112,8 +109,6 @@ enum ProtectionExperiencePolicy {
     enum LaunchIntentAction: Equatable, Sendable {
         /// Nothing beyond the reconcile, which runs once the helper is known.
         case none
-        /// The entitlement is gone, so the saved intent is cleared.
-        case clearIntentForLicense
         /// No approved helper yet. The intent waits for Finish Setup;
         /// enabling would open Login Items with no action from the person.
         case waitForSetup
@@ -121,11 +116,9 @@ enum ProtectionExperiencePolicy {
 
     static func launchIntentAction(
         persistentProtectionEnabled: Bool,
-        licenseAllowsProtection: Bool,
         helperRegistered: Bool
     ) -> LaunchIntentAction {
         guard persistentProtectionEnabled else { return .none }
-        guard licenseAllowsProtection else { return .clearIntentForLicense }
         return helperRegistered ? .none : .waitForSetup
     }
 

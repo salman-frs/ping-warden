@@ -14,7 +14,7 @@ import Foundation
 import os.log
 import WidgetKit
 
-private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "WidgetIntent")
+private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "WidgetIntent")
 
 /// App Intent to set Ping Protection from a Control Center toggle.
 /// When enabled, continuously monitors and keeps AWDL down.
@@ -75,21 +75,10 @@ private enum PingProtectionIntentHandler {
             throw AWDLError.toggleFailed
         }
 
-        // Enabling protection requires a license. The main app owns
-        // verification; the widget reads the same shared cache, so the
-        // gate cannot drift between the two toggle surfaces.
-        if desiredState, !PingWardenWidgetLicenseGate.canEnableProtection(preferences) {
-            log.warning("License gate blocked enabling Ping Protection from widget")
-            throw AWDLError.licenseRequired
-        }
-
         if desiredState {
             // The helper restores AWDL when its final client disconnects.
             // Keep the containing app alive as the durable connection owner.
             try await openContainingApp()
-            guard PingWardenWidgetLicenseGate.canEnableProtection(preferences) else {
-                throw AWDLError.licenseRequired
-            }
         }
 
         log.info("Applying authenticated monitoring state: \(desiredState)")
@@ -116,10 +105,10 @@ private enum PingProtectionIntentHandler {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        guard Bundle(url: appURL)?.bundleIdentifier == "com.amesvt.pingwarden" else {
+        guard Bundle(url: appURL)?.bundleIdentifier == "com.salmanfrs.pingwarden" else {
             throw AWDLError.appLaunchFailed
         }
-        if NSRunningApplication.runningApplications(withBundleIdentifier: "com.amesvt.pingwarden")
+        if NSRunningApplication.runningApplications(withBundleIdentifier: "com.salmanfrs.pingwarden")
             .contains(where: { !$0.isTerminated && $0.bundleURL?.standardizedFileURL == appURL.standardizedFileURL }) {
             return
         }
@@ -158,7 +147,6 @@ enum AWDLError: Error, CustomLocalizedStringResourceConvertible {
     case toggleFailed
     case monitoringFailed
     case appLaunchFailed
-    case licenseRequired
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
@@ -168,8 +156,6 @@ enum AWDLError: Error, CustomLocalizedStringResourceConvertible {
             return "Ping Protection could not reach its helper. Open Ping Warden and finish setup."
         case .appLaunchFailed:
             return "Ping Warden could not be opened."
-        case .licenseRequired:
-            return "Ping Protection requires a $15 one-time license. Open Ping Warden Settings → License to buy or enter your key."
         }
     }
 }

@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 private let helperClientLog = Logger(
-    subsystem: "com.amesvt.pingwarden",
+    subsystem: "com.salmanfrs.pingwarden",
     category: "WidgetHelperClient"
 )
 
@@ -36,7 +36,7 @@ private final class WidgetXPCRequest: @unchecked Sendable {
 
     private func start(continuation: CheckedContinuation<Void, Error>) {
         let newConnection = NSXPCConnection(
-            machServiceName: "com.amesvt.pingwarden.xpc",
+            machServiceName: "com.salmanfrs.pingwarden.xpc",
             options: .privileged
         )
         newConnection.remoteObjectInterface = NSXPCInterface(

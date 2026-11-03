@@ -38,7 +38,6 @@ struct OnboardingView: View {
     static let accessibilityHeight: CGFloat = 680
 
     @ObservedObject var model: OnboardingModel
-    @ObservedObject private var license = LicenseManager.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -101,10 +100,8 @@ struct OnboardingView: View {
             switch model.step {
             case .welcome: EmptyView()
             case .protection: ProtectionScreen(model: model)
-            case .license: LicenseScreen(model: model)
             case .approve: ApproveScreen(model: model)
             case .done: DoneScreen(model: model)
-            case .freeDashboard: FreeDashboardScreen()
             case .repairFailed: RepairFailedScreen(model: model)
             }
         }
@@ -140,7 +137,7 @@ struct OnboardingView: View {
         switch model.step {
         case .welcome:
             EmptyView()
-        case .protection, .license, .freeDashboard:
+        case .protection:
             Button(backTitle) { model.backTapped() }
                 .onboardingSecondary()
                 .keyboardShortcut(model.navigator.canGoBack ? nil : .cancelAction)
@@ -164,19 +161,9 @@ struct OnboardingView: View {
             Button("Continue") { model.continueTapped() }
                 .onboardingPrimary()
                 .accessibilityIdentifier("onboarding.continue")
-        case .license:
-            if model.canEnableProtection {
-                Button("Continue") { model.continueTapped() }
-                    .onboardingPrimary()
-                    .accessibilityIdentifier("onboarding.continue")
-            } else {
-                Button("Skip for Now") { model.continueTapped() }
-                    .onboardingSecondary()
-                    .accessibilityIdentifier("onboarding.skipLicense")
-            }
         case .approve:
             approvePrimaryButton
-        case .done, .freeDashboard:
+        case .done:
             Button("Open Dashboard") { model.openDashboardTapped() }
                 .onboardingPrimary()
                 .accessibilityIdentifier("onboarding.openDashboard")
@@ -348,7 +335,7 @@ private struct Caption: View {
 }
 
 private struct LargeAppIcon: View {
-    var size: CGFloat = 80
+    private let size: CGFloat = 80
 
     var body: some View {
         Image(nsImage: NSApplication.shared.applicationIconImage)
@@ -360,11 +347,10 @@ private struct LargeAppIcon: View {
 }
 
 /// The 4.3 Welcome, kept as people know it: icon, title, tagline, three
-/// feature rows, then the setup action area and the crash-report note.
+/// feature rows, then the setup action area.
 /// The guided steps start from its setup button.
 private struct WelcomeScreen: View {
     @ObservedObject var model: OnboardingModel
-    @ObservedObject private var license = LicenseManager.shared
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -404,12 +390,10 @@ private struct WelcomeScreen: View {
     }
 
     /// The setup action area, as in 4.3: one line about what setup asks
-    /// for, the primary action, Not Now, and the crash-report note.
+    /// for, the primary action, and Not Now.
     private var actionArea: some View {
         VStack(spacing: 14) {
-            Text(model.canEnableProtection
-                 ? "Setup asks for one approval in \(SystemSettingsCopy.loginItemsPaneName)."
-                 : OnboardingCopy.welcomeUnlicensedLine)
+            Text("Setup asks for one approval in \(SystemSettingsCopy.loginItemsPaneName).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -417,19 +401,14 @@ private struct WelcomeScreen: View {
                 .frame(maxWidth: 400)
 
             OnboardingGlassGroup(spacing: 12) {
-                VStack(spacing: 12) {
-                    if model.canEnableProtection {
-                        welcomeButton("Turn On Ping Protection", prominent: true) { model.continueTapped() }
-                            .accessibilityIdentifier("onboarding.continue")
-                    } else {
-                        // Without a license, the free dashboard leads and
-                        // setup starts with the license.
-                        welcomeButton("Open Dashboard", prominent: true) { model.openDashboardTapped() }
-                            .accessibilityIdentifier("onboarding.openDashboard")
-                        welcomeButton("Set Up Ping Protection", prominent: false) { model.continueTapped() }
-                            .accessibilityIdentifier("onboarding.continue")
-                    }
+                Button { model.continueTapped() } label: {
+                    Text("Turn On Ping Protection")
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
                 }
+                .onboardingPrimary()
+                .accessibilityIdentifier("onboarding.continue")
             }
             .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : 240)
 
@@ -438,27 +417,10 @@ private struct WelcomeScreen: View {
                 .font(.callout)
                 .keyboardShortcut(.cancelAction)
                 .accessibilityIdentifier("onboarding.notNow")
-
-            Caption(OnboardingCopy.crashReportCaption)
         }
         .padding(.horizontal, OnboardingSpacing.gutter)
         .padding(.top, OnboardingSpacing.small)
         .padding(.bottom, OnboardingSpacing.large)
-    }
-
-    @ViewBuilder
-    private func welcomeButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
-        let button = Button(action: action) {
-            Text(title)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity)
-        }
-        if prominent {
-            button.onboardingPrimary()
-        } else {
-            button.onboardingSecondary()
-        }
     }
 }
 
@@ -531,89 +493,6 @@ private struct ProtectionScreen: View {
             .modifier(OnboardingCardBackground())
 
             Caption(OnboardingCopy.protectionCaption)
-        }
-    }
-}
-
-/// The license field, Activate, and the purchase option share one card,
-/// with the donor note directly beneath it.
-private struct LicenseScreen: View {
-    @ObservedObject var model: OnboardingModel
-    @ObservedObject private var license = LicenseManager.shared
-
-    var body: some View {
-        VStack(spacing: OnboardingSpacing.large) {
-            ScreenTitle(title: OnboardingCopy.licenseTitle, subtitle: OnboardingCopy.licenseBody)
-
-            VStack(alignment: .leading, spacing: OnboardingSpacing.medium) {
-                if model.canEnableProtection {
-                    // Green symbol, plain text, like Settings → License.
-                    Label {
-                        Text("License active")
-                    } icon: {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    }
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                } else {
-                    keyEntry
-                    Divider()
-                    purchaseRow
-                }
-            }
-            .padding(OnboardingSpacing.medium)
-            .frame(maxWidth: OnboardingSpacing.column)
-            .modifier(OnboardingCardBackground())
-
-            Caption(OnboardingCopy.licenseDonorNote)
-        }
-    }
-
-    private var keyEntry: some View {
-        VStack(alignment: .leading, spacing: OnboardingSpacing.small) {
-            Text("License key")
-                .font(.headline)
-                .accessibilityHidden(true)
-            HStack(spacing: OnboardingSpacing.small) {
-                TextField("License Key", text: $model.licenseKey, prompt: Text(OnboardingCopy.licenseFieldPrompt))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.large)
-                    .autocorrectionDisabled()
-                    .onSubmit { model.activateLicense() }
-                    .accessibilityLabel("License Key")
-                // Regular size, the license field's height.
-                Button {
-                    model.activateLicense()
-                } label: {
-                    BusyButtonLabel(title: "Activate", isBusy: license.isVerifying)
-                }
-                .disabled(license.isVerifying
-                          || model.licenseKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("onboarding.activate")
-            }
-            if let message = model.licenseMessage {
-                Label(message, systemImage: model.licenseMessageIsError
-                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(model.licenseMessageIsError ? .red : .secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var purchaseRow: some View {
-        HStack(alignment: .center, spacing: OnboardingSpacing.medium) {
-            VStack(alignment: .leading, spacing: OnboardingSpacing.tight) {
-                Text("Ping Protection, $15")
-                    .font(.headline)
-                Text("One purchase, no subscription.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: OnboardingSpacing.small)
-            Button("Buy a License…") { model.buyLicense() }
         }
     }
 }
@@ -798,7 +677,6 @@ private struct HelperFactsView: View {
 
 private struct DoneScreen: View {
     @ObservedObject var model: OnboardingModel
-    @ObservedObject private var license = LicenseManager.shared
 
     private var copy: OnboardingCopy.Done {
         if model.mode == .repair, let report = model.repairReport,
@@ -807,11 +685,7 @@ private struct DoneScreen: View {
             // restoration did not finish. Say exactly that.
             return OnboardingCopy.Done(title: report.title, body: report.message, isComplete: false)
         }
-        return OnboardingCopy.done(
-            mode: model.mode,
-            protectionOn: model.protectionOnAtDone,
-            canEnableProtection: model.canEnableProtection
-        )
+        return OnboardingCopy.done(mode: model.mode, protectionOn: model.protectionOnAtDone)
     }
 
     var body: some View {
@@ -820,15 +694,6 @@ private struct DoneScreen: View {
             DrawnStatusMark(kind: copy.isComplete ? .success : .attention)
             ScreenTitle(title: copy.title, subtitle: copy.body, large: true)
             MenuBarHint(protectionOn: model.protectionOnAtDone)
-        }
-    }
-}
-
-private struct FreeDashboardScreen: View {
-    var body: some View {
-        VStack(spacing: OnboardingSpacing.large) {
-            LargeAppIcon(size: 92)
-            ScreenTitle(title: OnboardingCopy.freeDashboardTitle, subtitle: OnboardingCopy.freeDashboardBody, large: true)
         }
     }
 }
@@ -868,40 +733,32 @@ extension OnboardingModel {
         let ready = tracker(.notRegistered)
         switch name {
         case "welcome":
-            return OnboardingModel(preview: .firstRun, step: .welcome, tracker: ready, canEnableProtection: false)
-        case "welcome-licensed":
-            return OnboardingModel(preview: .firstRun, step: .welcome, tracker: ready, canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .welcome, tracker: ready)
         case "protection":
-            return OnboardingModel(preview: .firstRun, step: .protection, tracker: ready, canEnableProtection: true)
-        case "license":
-            return OnboardingModel(preview: .firstRun, step: .license, tracker: ready, canEnableProtection: false)
+            return OnboardingModel(preview: .firstRun, step: .protection, tracker: ready)
         case "approve":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: ready, canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: ready)
         case "approve-earlier":
-            return OnboardingModel(preview: .finishSetup, step: .approve, tracker: tracker(.requiresApproval), canEnableProtection: true)
+            return OnboardingModel(preview: .finishSetup, step: .approve, tracker: tracker(.requiresApproval))
         case "approve-waiting":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 4), canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 4))
         case "approve-handoff":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 12, opened: true), canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 12, opened: true))
         case "approve-late":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 47, opened: true), canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 47, opened: true))
         case "approve-timeout":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 61, opened: true), canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.requiresApproval, start: true, at: 61, opened: true))
         case "approve-approved":
-            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.enabled, start: true, at: 20), canEnableProtection: true)
+            return OnboardingModel(preview: .firstRun, step: .approve, tracker: tracker(.enabled, start: true, at: 20))
         case "done":
-            return OnboardingModel(preview: .firstRun, step: .done, tracker: tracker(.enabled), canEnableProtection: true, protectionOn: true)
-        case "done-unlicensed":
-            return OnboardingModel(preview: .firstRun, step: .done, tracker: tracker(.enabled), canEnableProtection: false)
-        case "free-dashboard":
-            return OnboardingModel(preview: .firstRun, step: .freeDashboard, tracker: ready, canEnableProtection: false)
+            return OnboardingModel(preview: .firstRun, step: .done, tracker: tracker(.enabled), protectionOn: true)
         case "repair":
-            return OnboardingModel(preview: .repair, step: .approve, tracker: tracker(.enabled, repair: true), canEnableProtection: true)
+            return OnboardingModel(preview: .repair, step: .approve, tracker: tracker(.enabled, repair: true))
         case "repair-done":
-            return OnboardingModel(preview: .repair, step: .done, tracker: tracker(.enabled), canEnableProtection: true, protectionOn: true,
+            return OnboardingModel(preview: .repair, step: .done, tracker: tracker(.enabled), protectionOn: true,
                                    repairReport: HelperTestReport(title: RepairResultCopy.successTitle, message: RepairResultCopy.successMessage(protectionOn: true)))
         case "repair-failed":
-            return OnboardingModel(preview: .repair, step: .repairFailed, tracker: tracker(.enabled), canEnableProtection: true,
+            return OnboardingModel(preview: .repair, step: .repairFailed, tracker: tracker(.enabled),
                                    repairReport: HelperTestReport(title: RepairResultCopy.failureTitle, message: RepairResultCopy.failureMessage))
         default:
             return nil
@@ -909,8 +766,8 @@ extension OnboardingModel {
     }
 
     static let previewNames = [
-        "welcome", "welcome-licensed", "protection", "license", "approve", "approve-earlier", "approve-waiting", "approve-handoff",
-        "approve-late", "approve-timeout", "approve-approved", "done", "done-unlicensed", "free-dashboard",
+        "welcome", "protection", "approve", "approve-earlier", "approve-waiting", "approve-handoff",
+        "approve-late", "approve-timeout", "approve-approved", "done",
         "repair", "repair-done", "repair-failed",
     ]
 }

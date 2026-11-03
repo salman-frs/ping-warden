@@ -364,7 +364,7 @@ final class ProtectedSessionStore: @unchecked Sendable {
 
     // PingWardenCore also builds on Linux for CI, where os.Logger is missing.
     #if canImport(os)
-    private static let logger = Logger(subsystem: "com.amesvt.pingwarden", category: "ProtectedSessionStore")
+    private static let logger = Logger(subsystem: "com.salmanfrs.pingwarden", category: "ProtectedSessionStore")
 
     private static func logMovedAside(_ name: String) {
         logger.error("Protected session history could not be decoded; moved it to \(name, privacy: .public) and started a new history")

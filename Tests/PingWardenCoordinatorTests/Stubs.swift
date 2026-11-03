@@ -102,13 +102,6 @@ final class PingWardenPreferences: @unchecked Sendable {
     var lastKnownState = "unknown"
     var protectionPauseUntil: Date?
 }
-final class LicenseManager: @unchecked Sendable {
-    static let shared = LicenseManager()
-    static var launchGateAllowsProtection = true
-    static let donationConversionEmail = "fixture@example.invalid"
-    var canEnableProtection = true
-    var grandfatherWindowExpired = false
-}
 final class NSAlert {
     enum Style { case critical }
     static var messages: [String] = []

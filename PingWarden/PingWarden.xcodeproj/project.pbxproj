@@ -9,9 +9,7 @@
 /* Begin PBXBuildFile section */
 		LaunchHandoffBuild /* ControlCenterLaunchHandoff.swift in Sources */ = {isa = PBXBuildFile; fileRef = LaunchHandoffRef /* ControlCenterLaunchHandoff.swift */; };
 		ControlProtectionBuild /* ControlProtectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = ControlProtectionRef /* ControlProtectionState.swift */; };
-		5E1705182026010100000003 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = 5E1705182026010100000002 /* Sentry */; };
 		815E03172EAEA562006913A8 /* PingWardenWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = WidgetRef /* PingWardenWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		81CB02502F357A9600AB4024 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 81CB024F2F357A9600AB4024 /* Sparkle */; };
 		Widget001 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = WidgetKitRef /* WidgetKit.framework */; };
 		Widget002 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = SwiftUIRef /* SwiftUI.framework */; };
 /* End PBXBuildFile section */
@@ -117,8 +115,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				81CB02502F357A9600AB4024 /* Sparkle in Frameworks */,
-				5E1705182026010100000003 /* Sentry in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -203,10 +199,6 @@
 				AppGroup /* PingWarden */,
 			);
 			name = PingWarden;
-			packageProductDependencies = (
-				81CB024F2F357A9600AB4024 /* Sparkle */,
-				5E1705182026010100000002 /* Sentry */,
-			);
 			productName = PingWarden;
 			productReference = AppRef /* Ping Warden.app */;
 			productType = "com.apple.product-type.application";
@@ -227,8 +219,6 @@
 				HelperGroup /* PingWardenHelper */,
 			);
 			name = PingWardenHelper;
-			packageProductDependencies = (
-			);
 			productName = PingWardenHelper;
 			productReference = HelperRef /* PingWardenHelper */;
 			productType = "com.apple.product-type.tool";
@@ -249,8 +239,6 @@
 				WidgetGroup /* PingWardenWidget */,
 			);
 			name = PingWardenWidget;
-			packageProductDependencies = (
-			);
 			productName = PingWardenWidget;
 			productReference = WidgetRef /* PingWardenWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -285,10 +273,6 @@
 			);
 			mainGroup = RootGroup;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				81CB024E2F357A9600AB4024 /* XCRemoteSwiftPackageReference "Sparkle" */,
-				5E1705182026010100000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = ProductsGroup /* Products */;
 			projectDirPath = "";
@@ -341,15 +325,15 @@
 			files = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/PingWardenHelper/com.amesvt.pingwarden.helper.plist",
+				"$(SRCROOT)/PingWardenHelper/com.salmanfrs.pingwarden.helper.plist",
 			);
 			name = "Copy Helper Plist";
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/com.amesvt.pingwarden.helper.plist",
+				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchDaemons/com.salmanfrs.pingwarden.helper.plist",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchDaemons\"\n   cp \"${SRCROOT}/PingWardenHelper/com.amesvt.pingwarden.helper.plist\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchDaemons/\"\n";
+			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchDaemons\"\n   cp \"${SRCROOT}/PingWardenHelper/com.salmanfrs.pingwarden.helper.plist\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchDaemons/\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -399,13 +383,11 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PingWarden/PingWarden.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 44300;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
@@ -420,8 +402,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 4.4.3;
-				PING_WARDEN_RELEASE_CHANNEL = production;
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden;
 				PRODUCT_NAME = "Ping Warden";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -439,14 +420,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = PingWarden/PingWarden.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 44300;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -462,8 +441,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
 				MARKETING_VERSION = 4.4.3;
-				PING_WARDEN_RELEASE_CHANNEL = production;
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden;
 				PRODUCT_NAME = "Ping Warden";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -478,13 +456,11 @@
 		HelperDebugConfig /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PingWardenHelper/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
@@ -492,7 +468,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden.helper;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden.helper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -502,13 +478,11 @@
 		HelperReleaseConfig /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = YES;
 				CODE_SIGN_STYLE = Manual;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = PingWardenHelper/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
@@ -516,7 +490,7 @@
 					"-framework",
 					SystemConfiguration,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden.helper;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden.helper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -559,7 +533,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = PV3W52NDZ3;
+				DEVELOPMENT_TEAM = STM6ZAXNXF;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -623,7 +597,7 @@
 				COPY_PHASE_STRIP = NO;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = PV3W52NDZ3;
+				DEVELOPMENT_TEAM = STM6ZAXNXF;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
@@ -649,12 +623,10 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = PingWardenWidget/PingWardenWidget.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 44300;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PingWardenWidget/Info.plist;
@@ -667,7 +639,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 4.4.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -684,13 +656,11 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = PingWardenWidget/PingWardenWidget.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 44300;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=macosx*]" = PV3W52NDZ3;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -704,7 +674,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 4.4.3;
-				PRODUCT_BUNDLE_IDENTIFIER = com.amesvt.pingwarden.widget;
+				PRODUCT_BUNDLE_IDENTIFIER = com.salmanfrs.pingwarden.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
@@ -755,38 +725,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		5E1705182026010100000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/getsentry/sentry-cocoa";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 9.26.0;
-			};
-		};
-		81CB024E2F357A9600AB4024 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/sparkle-project/Sparkle";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.9.6;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		5E1705182026010100000002 /* Sentry */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5E1705182026010100000001 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
-			productName = Sentry;
-		};
-		81CB024F2F357A9600AB4024 /* Sparkle */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 81CB024E2F357A9600AB4024 /* XCRemoteSwiftPackageReference "Sparkle" */;
-			productName = Sparkle;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = RootObject /* Project object */;
 }

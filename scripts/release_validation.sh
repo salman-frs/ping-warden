@@ -4,12 +4,12 @@
 # This file is sourced by notarize.sh and release.sh. The caller must enable
 # strict shell handling before invoking these functions.
 
-PING_WARDEN_BUNDLE_ID="com.amesvt.pingwarden"
-PING_WARDEN_WIDGET_BUNDLE_ID="com.amesvt.pingwarden.widget"
-PING_WARDEN_HELPER_BUNDLE_ID="com.amesvt.pingwarden.helper"
+PING_WARDEN_BUNDLE_ID="com.salmanfrs.pingwarden"
+PING_WARDEN_WIDGET_BUNDLE_ID="com.salmanfrs.pingwarden.widget"
+PING_WARDEN_HELPER_BUNDLE_ID="com.salmanfrs.pingwarden.helper"
 PING_WARDEN_TEAM_ID="PV3W52NDZ3"
-PING_WARDEN_APP_GROUP="PV3W52NDZ3.com.amesvt.pingwarden"
-PING_WARDEN_HELPER_MACH_SERVICE="com.amesvt.pingwarden.xpc"
+PING_WARDEN_APP_GROUP="PV3W52NDZ3.com.salmanfrs.pingwarden"
+PING_WARDEN_HELPER_MACH_SERVICE="com.salmanfrs.pingwarden.xpc"
 
 release_validation_error() {
     echo "Error: $*" >&2
@@ -236,7 +236,6 @@ validate_app_artifact() {
     local require_signature="${3:-1}"
     local info_plist expected_marketing_version widget_plist widget_minimum_version
     local app_executable widget_executable helper_path
-    local require_signed_feed verify_before_extraction
 
     validate_release_version "$release_version" || return 1
 
@@ -262,22 +261,6 @@ validate_app_artifact() {
     fi
     validate_numeric_bundle_version "$VALIDATED_BUNDLE_VERSION" || return 1
     validate_minimum_system_version "$VALIDATED_MINIMUM_SYSTEM_VERSION" || return 1
-
-    if [ -z "$(plist_value "$info_plist" SUFeedURL || true)" ]; then
-        release_validation_error "artifact has no SUFeedURL"
-        return 1
-    fi
-    if [ -z "$(plist_value "$info_plist" SUPublicEDKey || true)" ]; then
-        release_validation_error "artifact has no SUPublicEDKey"
-        return 1
-    fi
-
-    require_signed_feed="$(plist_value "$info_plist" SURequireSignedFeed || true)"
-    verify_before_extraction="$(plist_value "$info_plist" SUVerifyUpdateBeforeExtraction || true)"
-    if [ "$require_signed_feed" != "true" ] || [ "$verify_before_extraction" != "true" ]; then
-        release_validation_error "artifact must enable SURequireSignedFeed and SUVerifyUpdateBeforeExtraction"
-        return 1
-    fi
 
     widget_plist="$app_path/Contents/PlugIns/PingWardenWidget.appex/Contents/Info.plist"
     if [ ! -f "$widget_plist" ]; then

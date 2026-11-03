@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 private let sessionLog = Logger(
-    subsystem: "com.amesvt.pingwarden",
+    subsystem: "com.salmanfrs.pingwarden",
     category: "ProtectedSession"
 )
 

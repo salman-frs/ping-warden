@@ -71,14 +71,13 @@ enum GatekeeperCopy {
     static let title = "macOS Could Not Verify Ping Warden"
 
     static func message(osMajorVersion: Int) -> String {
-        let intro = "Download the current signed and notarized release from the official GitHub Releases page."
         let openAnyway = "open System Settings → Privacy & Security, scroll to Security, and click Open Anyway for Ping Warden."
-        let ownBuild: String
+        let steps: String
         if osMajorVersion >= 15 {
-            ownBuild = "If you built this copy yourself, try to open it once, then \(openAnyway)"
+            steps = "Try to open it once, then \(openAnyway)"
         } else {
-            ownBuild = "If you built this copy yourself, Control-click it in Finder and choose Open. You can also try to open it once, then \(openAnyway)"
+            steps = "Control-click it in Finder and choose Open. You can also try to open it once, then \(openAnyway)"
         }
-        return "\(intro)\n\n\(ownBuild) Ping Warden will never ask you to remove quarantine attributes in Terminal."
+        return "This copy is not signed with a Developer ID, so macOS blocks it until you allow it. \(steps) Ping Warden will never ask you to remove quarantine attributes in Terminal."
     }
 }

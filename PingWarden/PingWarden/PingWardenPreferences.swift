@@ -9,17 +9,15 @@
 //
 
 import Foundation
+import Security
 import os.log
 
-private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "Preferences")
+private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "Preferences")
 
 /// Manages shared state between app and widget using App Groups
 final class PingWardenPreferences: @unchecked Sendable {
     static let shared = PingWardenPreferences()
 
-    private let appGroupID = "PV3W52NDZ3.com.amesvt.pingwarden"
-    private let legacyAppGroupID = "group.com.amesvt.pingwarden"
-    private let legacyMigrationKey = "LegacyAppGroupMigrationCompleted"
     private let monitoringEnabledKey = "AWDLMonitoringEnabled" // User intent
     private let effectiveMonitoringEnabledKey = "AWDLEffectiveMonitoringEnabled" // Runtime state
     private let protectionPauseUntilKey = "ProtectionPauseUntil" // Epoch seconds of an active pause, absent when none
@@ -33,70 +31,30 @@ final class PingWardenPreferences: @unchecked Sendable {
     private let showMenuDropdownMetricsKey = "ShowMenuDropdownMetrics"
     private let completedSessionCountKey = "CompletedProtectedSessionCount"
     private let lifetimeInterventionCountKey = "LifetimeInterventionCount"
-    private let crashReportingEnabledKey = CrashReportingPolicy.preferenceKey
-    private let betaChannelEnabledKey = "BetaChannelEnabled"
-    private let lastSeenWhatsNewVersionKey = "LastSeenWhatsNewVersion"
 
     /// Shared App Group defaults handle, exposed so non-singleton consumers
     /// (CustomPingTargetStore, tests, future widget targets) can re-use the
     /// same suite without duplicating the suite name.
     let defaults: UserDefaults
 
+    /// The App Group from this build's signed entitlements. The entitlements
+    /// prefix it with the signing team, so it is nil in an unsigned build.
+    static let appGroupID: String? = {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let groups = SecTaskCopyValueForEntitlement(
+                task, "com.apple.security.application-groups" as CFString, nil
+              ) as? [String] else { return nil }
+        return groups.first
+    }()
+
     private init() {
-        if let suite = UserDefaults(suiteName: appGroupID) {
+        if let groupID = Self.appGroupID, let suite = UserDefaults(suiteName: groupID) {
             log.debug("Successfully connected to App Group suite")
             defaults = suite
         } else {
             log.error("Failed to create App Group suite, using standard defaults")
             defaults = UserDefaults.standard
         }
-
-        migrateLegacyPreferencesIfAvailable()
-
-        // `register` only applies when the key has never been written. Existing
-        // choices persist, including explicit opt-outs and migrated choices.
-        CrashReportingPolicy.registerDefault(in: defaults)
-    }
-
-    /// macOS 15 began enforcing App Group authorization for non-sandboxed
-    /// Developer ID apps. Ping Warden 2.x used an iOS-style `group.` ID without
-    /// an embedded provisioning profile, so that container is not safely
-    /// readable on macOS 15 and later. On macOS 13 and 14, copy any existing
-    /// values directly before the old container becomes inaccessible.
-    private func migrateLegacyPreferencesIfAvailable() {
-        guard !defaults.bool(forKey: legacyMigrationKey) else { return }
-
-        if #available(macOS 15.0, *) {
-            defaults.set(true, forKey: legacyMigrationKey)
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: legacyPreferencesURL)
-            guard let values = try PropertyListSerialization.propertyList(
-                from: data,
-                options: [],
-                format: nil
-            ) as? [String: Any] else {
-                log.warning("Legacy App Group preferences were not a dictionary")
-                defaults.set(true, forKey: legacyMigrationKey)
-                return
-            }
-
-            for (key, value) in values where defaults.object(forKey: key) == nil {
-                defaults.set(value, forKey: key)
-            }
-            log.info("Migrated \(values.count) legacy App Group preference values")
-        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
-            log.debug("No legacy App Group preferences found")
-        } catch {
-            // Do not block launch. Leaving the marker unset lets a future
-            // launch retry after a transient read failure.
-            log.warning("Legacy App Group migration failed: \(error.localizedDescription)")
-            return
-        }
-
-        defaults.set(true, forKey: legacyMigrationKey)
     }
 
     /// User intent for whether AWDL monitoring should be enabled.
@@ -237,71 +195,23 @@ final class PingWardenPreferences: @unchecked Sendable {
         set { defaults.set(max(0, newValue), forKey: lifetimeInterventionCountKey) }
     }
 
-    /// Crash reporting via Sentry. Default `true`; users can opt out from
-    /// Settings → Advanced → Privacy. Covers crash reports, helper error
-    /// events, release-health sessions, and state breadcrumbs; never IP
-    /// addresses, ping targets, host or network names, or license keys (see
-    /// CrashReporter.swift). Turning it off applies immediately; turning it
-    /// on starts reporting on the next launch.
-    var isCrashReportingEnabled: Bool {
-        get { defaults.bool(forKey: crashReportingEnabledKey) }
-        set { defaults.set(newValue, forKey: crashReportingEnabledKey) }
-    }
-
-    /// Opt-in beta channel for Sparkle updates. Default `false` — when
-    /// enabled, Sparkle pulls from `appcast-beta.xml` instead of the stable
-    /// `appcast.xml`. Toggled in Settings → Advanced → Updates; takes effect
-    /// on the next update check (no restart required because the
-    /// `SPUUpdaterDelegate.feedURLString(for:)` callback fires every check).
-    var betaChannelEnabled: Bool {
-        get { defaults.bool(forKey: betaChannelEnabledKey) }
-        set { defaults.set(newValue, forKey: betaChannelEnabledKey) }
-    }
-
-    /// Bundle version whose release notes the user has already been offered.
-    /// `nil` until the first launch records a baseline, so a fresh install is
-    /// never asked to catch up on releases it never missed.
-    var lastSeenWhatsNewVersion: String? {
-        get { defaults.string(forKey: lastSeenWhatsNewVersionKey) }
-        set { defaults.set(newValue, forKey: lastSeenWhatsNewVersionKey) }
-    }
-
     /// Remove every value owned by the shared app-group suite. This is used
     /// only after Ping Protection is confirmed off and the helper has been
     /// unregistered, so a partial removal cannot strand privileged state.
     func resetForRemoval() {
-        CrashReportingPolicy.prepareForRemoval(in: defaults)
-        defaults.removePersistentDomain(forName: appGroupID)
-
-        // Before macOS 15, Ping Warden 2.x could persist values in the legacy
-        // iOS-style group even without a profile. Remove that plist too when
-        // the operating system still permits direct access to the container.
-        if #unavailable(macOS 15.0),
-           FileManager.default.fileExists(atPath: legacyPreferencesURL.path) {
-            do {
-                try FileManager.default.removeItem(at: legacyPreferencesURL)
-            } catch {
-                log.warning("Could not remove legacy App Group preferences: \(error.localizedDescription)")
-            }
+        if let groupID = Self.appGroupID {
+            defaults.removePersistentDomain(forName: groupID)
         }
-    }
-
-    private var legacyPreferencesURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Group Containers", isDirectory: true)
-            .appendingPathComponent(legacyAppGroupID, isDirectory: true)
-            .appendingPathComponent("Library/Preferences", isDirectory: true)
-            .appendingPathComponent("\(legacyAppGroupID).plist", isDirectory: false)
     }
 }
 
 extension Notification.Name {
     // Use namespaced notification names to avoid collisions with other apps
-    static let awdlMonitoringStateChanged = Notification.Name("com.amesvt.pingwarden.notification.MonitoringStateChanged")
-    static let awdlEffectiveMonitoringStateChanged = Notification.Name("com.amesvt.pingwarden.notification.EffectiveMonitoringStateChanged")
-    static let awdlMonitorStateChanged = Notification.Name("com.amesvt.pingwarden.notification.MonitorStateChanged")
-    static let controlCenterModeChanged = Notification.Name("com.amesvt.pingwarden.notification.ControlCenterModeChanged")
-    static let gameModeAutoDetectChanged = Notification.Name("com.amesvt.pingwarden.notification.GameModeAutoDetectChanged")
-    static let dockIconVisibilityChanged = Notification.Name("com.amesvt.pingwarden.notification.DockIconVisibilityChanged")
-    static let menuDropdownMetricsChanged = Notification.Name("com.amesvt.pingwarden.notification.MenuDropdownMetricsChanged")
+    static let awdlMonitoringStateChanged = Notification.Name("com.salmanfrs.pingwarden.notification.MonitoringStateChanged")
+    static let awdlEffectiveMonitoringStateChanged = Notification.Name("com.salmanfrs.pingwarden.notification.EffectiveMonitoringStateChanged")
+    static let awdlMonitorStateChanged = Notification.Name("com.salmanfrs.pingwarden.notification.MonitorStateChanged")
+    static let controlCenterModeChanged = Notification.Name("com.salmanfrs.pingwarden.notification.ControlCenterModeChanged")
+    static let gameModeAutoDetectChanged = Notification.Name("com.salmanfrs.pingwarden.notification.GameModeAutoDetectChanged")
+    static let dockIconVisibilityChanged = Notification.Name("com.salmanfrs.pingwarden.notification.DockIconVisibilityChanged")
+    static let menuDropdownMetricsChanged = Notification.Name("com.salmanfrs.pingwarden.notification.MenuDropdownMetricsChanged")
 }

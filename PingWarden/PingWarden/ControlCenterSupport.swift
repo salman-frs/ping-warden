@@ -72,9 +72,9 @@ enum ControlCenterSupport {
             case .unsupportedOS:
                 return "Control Center widgets in Ping Warden require macOS 26 or newer."
             case .missingWidgetExtension:
-                return "The Ping Warden widget extension was not found in this app bundle. Reinstall Ping Warden from a signed release."
+                return "The Ping Warden widget extension was not found in this app bundle. Build Ping Warden together with its widget target."
             case .unsignedOrUntrusted:
-                return "Control Center widgets require the app to be signed with Ping Warden's Developer ID certificate."
+                return "Control Center widgets require Ping Warden to be signed with its team's certificate."
             }
         }
     }
@@ -115,8 +115,15 @@ enum ControlCenterSupport {
             return .unsignedOrUntrusted
         }
 
+        var signingInfo: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &signingInfo) == errSecSuccess,
+              let team = (signingInfo as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String,
+              !team.isEmpty else {
+            return .unsignedOrUntrusted
+        }
+
         var requirement: SecRequirement?
-        let requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"PV3W52NDZ3\""
+        let requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
         guard SecRequirementCreateWithString(requirementString as CFString, [], &requirement) == errSecSuccess,
               let req = requirement else {
             return .unsignedOrUntrusted
@@ -136,7 +143,7 @@ enum ControlCenterSupport {
 final class ControlCenterRefresher {
     static let shared = ControlCenterRefresher()
 
-    private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "ControlCenter")
+    private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "ControlCenter")
     private var coalescer = ControlCenterRefreshCoalescer()
 
     private init() {}

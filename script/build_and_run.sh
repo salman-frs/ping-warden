@@ -3,7 +3,7 @@ set -euo pipefail
 
 MODE="${1:-run}"
 APP_NAME="Ping Warden"
-BUNDLE_ID="com.amesvt.pingwarden"
+BUNDLE_ID="com.salmanfrs.pingwarden"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DERIVED_DATA="$ROOT_DIR/.build/xcode-run"

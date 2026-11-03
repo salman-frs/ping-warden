@@ -23,13 +23,9 @@ enum OnboardingStep: String, Equatable, Sendable, CaseIterable {
     case welcome
     /// What Ping Protection does.
     case protection
-    /// Shown only when protection cannot be turned on yet.
-    case license
     /// Approve the helper. Shared by first run, Finish Setup, and Repair.
     case approve
     case done
-    /// The end of the unlicensed path after Skip for Now.
-    case freeDashboard
     /// Repair could not get the helper to answer after approval.
     case repairFailed
 }
@@ -40,37 +36,27 @@ struct OnboardingNavigator: Equatable, Sendable {
     let mode: OnboardingMode
     private(set) var step: OnboardingStep
     private(set) var history: [OnboardingStep] = []
-    /// Fixed when the window opens, so the page dots do not jump when a
-    /// license is activated partway through.
-    let showsLicenseStep: Bool
 
-    init(mode: OnboardingMode, canEnableProtection: Bool) {
+    init(mode: OnboardingMode) {
         self.mode = mode
-        self.showsLicenseStep = mode != .repair && !canEnableProtection
-        self.step = Self.entryStep(mode: mode, canEnableProtection: canEnableProtection)
+        self.step = Self.entryStep(mode: mode)
     }
 
-    /// Where a mode starts. Finish Setup resumes at the first incomplete
-    /// step: the license when protection cannot be turned on yet,
-    /// otherwise approval.
-    static func entryStep(mode: OnboardingMode, canEnableProtection: Bool) -> OnboardingStep {
+    /// Where a mode starts. Finish Setup resumes at approval.
+    static func entryStep(mode: OnboardingMode) -> OnboardingStep {
         switch mode {
         case .firstRun: return .welcome
-        case .finishSetup: return canEnableProtection ? .approve : .license
-        case .repair: return .approve
+        case .finishSetup, .repair: return .approve
         }
     }
 
     /// The screen after `step` when the person continues.
-    static func step(after step: OnboardingStep, canEnableProtection: Bool) -> OnboardingStep {
+    static func step(after step: OnboardingStep) -> OnboardingStep {
         switch step {
         case .welcome: return .protection
-        case .protection: return canEnableProtection ? .approve : .license
-        // Approving a helper that cannot be used yet adds a system prompt
-        // for no benefit, so an unlicensed person ends on the dashboard.
-        case .license: return canEnableProtection ? .approve : .freeDashboard
+        case .protection: return .approve
         case .approve: return .done
-        case .done, .freeDashboard, .repairFailed: return step
+        case .done, .repairFailed: return step
         }
     }
 
@@ -82,18 +68,15 @@ struct OnboardingNavigator: Equatable, Sendable {
         case .repair:
             return []
         case .firstRun:
-            return [.protection] + (showsLicenseStep ? [.license] : []) + [.approve, .done]
+            return [.protection, .approve, .done]
         case .finishSetup:
-            return (showsLicenseStep ? [.license] : []) + [.approve, .done]
+            return [.approve, .done]
         }
     }
 
-    /// The highlighted dot. The free-dashboard ending stands in for Done.
+    /// The highlighted dot.
     var pageIndex: Int? {
-        let steps = pageSteps
-        guard !steps.isEmpty else { return nil }
-        if step == .freeDashboard { return steps.count - 1 }
-        return steps.firstIndex(of: step)
+        pageSteps.firstIndex(of: step)
     }
 
     /// Whether Back has somewhere to go. When it does not, the left
@@ -103,8 +86,8 @@ struct OnboardingNavigator: Equatable, Sendable {
         return !history.isEmpty
     }
 
-    mutating func advance(canEnableProtection: Bool) {
-        let next = Self.step(after: step, canEnableProtection: canEnableProtection)
+    mutating func advance() {
+        let next = Self.step(after: step)
         guard next != step else { return }
         history.append(step)
         step = next
@@ -122,17 +105,6 @@ struct OnboardingNavigator: Equatable, Sendable {
         step = target
     }
 
-    /// Helper approval only follows a license (a valid key or an active
-    /// transition): the free dashboard runs its latency probes in the app
-    /// and never needs the helper. Repair is exempt, because it fixes a
-    /// helper that was already approved. Returns true when it redirected.
-    @discardableResult
-    mutating func requireLicenseForApproval(canEnableProtection: Bool) -> Bool {
-        guard step == .approve, mode != .repair, !canEnableProtection else { return false }
-        show(.license)
-        return true
-    }
-
     mutating func goBack() {
         guard canGoBack, let previous = history.popLast() else { return }
         step = previous
@@ -146,82 +118,6 @@ enum HelperRegistrationState: Equatable, Sendable {
     case requiresApproval
     case enabled
     case notFound
-}
-
-/// What follows a license the person just activated: in Settings →
-/// License (which the Dashboard unlock card opens), or in the setup
-/// window's own license step, which asks with the window it is in.
-///
-/// An explicit activation is meant to end with Ping Protection on:
-/// - A helper that is approved and answering: protection turns on at once,
-///   and no window opens.
-/// - A helper that is not approved yet: setup continues at the idle Approve
-///   step. Nothing changes in macOS until Approve Helper is clicked, and
-///   setup turns protection on when approval finishes.
-/// - A helper that is approved but has stopped answering: Repair runs, as
-///   from the Repair… menu item. It first checks whether the helper
-///   answers; only a helper that must be approved again opens the Repair
-///   screen, which waits for the person's click. Protection turns on once
-///   Repair succeeds.
-///
-/// Whether protection may turn on at that moment (a pause, a session, a
-/// change in flight) is `LicenseActivationProtection`.
-enum LicenseActivationFollowUp: Equatable, Sendable {
-    /// Leave everything as it is.
-    case none
-    /// Turn protection on now; the helper is ready. No window opens, and an
-    /// open setup window is left where it is.
-    case turnProtectionOn
-    /// Open the setup window at the Approve step.
-    case openApproval
-    /// The setup window is open on another screen: switch it to the
-    /// Approve step and bring it forward.
-    case showApprovalInOpenWindow
-    /// The setup window is already approving, or repairing, the helper:
-    /// bring it forward without disturbing it. Protection turns on when
-    /// that approval or Repair succeeds.
-    case bringOpenWindowForward
-    /// Run Repair's check. A helper that must be approved again opens the
-    /// Repair screen (an open setup window switches to it in place, as the
-    /// Repair… menu item does); a helper that answers after all needs no
-    /// window, and protection turns on.
-    case repairHelper
-
-    /// The setup window as it stands, when one is open.
-    struct OpenWindow: Equatable, Sendable {
-        let mode: OnboardingMode
-        let step: OnboardingStep
-    }
-
-    /// - Parameters:
-    ///   - canEnableProtection: The license state after activation.
-    ///   - helperStatus: The helper's registration as macOS reports it.
-    ///   - helperResponding: False once a request to an enabled helper went
-    ///     unanswered, or while a Repair is running: the signal that makes
-    ///     the app offer Repair. Unknown (nothing asked yet) counts as
-    ///     responding; if turning protection on then finds the helper
-    ///     silent, the app continues with Repair.
-    ///   - openWindow: The setup window, if one is open.
-    static func decide(
-        canEnableProtection: Bool,
-        helperStatus: HelperRegistrationState,
-        helperResponding: Bool,
-        openWindow: OpenWindow?
-    ) -> LicenseActivationFollowUp {
-        guard canEnableProtection else { return .none }
-        let windowIsApprovingOrRepairing = openWindow.map {
-            $0.mode == .repair || $0.step == .approve
-        } ?? false
-        if helperStatus == .enabled {
-            if helperResponding { return .turnProtectionOn }
-            // Entering approval with an enabled status would rebuild the
-            // registration before the person clicked anything. Repair
-            // checks first and asks before it changes anything.
-            return windowIsApprovingOrRepairing ? .bringOpenWindowForward : .repairHelper
-        }
-        guard openWindow != nil else { return .openApproval }
-        return windowIsApprovingOrRepairing ? .bringOpenWindowForward : .showApprovalInOpenWindow
-    }
 }
 
 /// The Approve step's live state, driven by polling the registration
@@ -488,8 +384,6 @@ enum OnboardingCopy {
     static let welcomeTitle = "Welcome to Ping Warden"
     static let welcomeLine = "Keep your Wi\u{2011}Fi steady while you cloud game on a Mac."
     static let welcomeReassurance = "Setup takes about a minute and needs one approval from macOS."
-    /// Shown above the Welcome's buttons when setup must start with a license.
-    static let welcomeUnlicensedLine = "Ping Protection is a one-time $15 purchase. The latency dashboard is free."
 
     struct Benefit: Equatable, Sendable {
         let symbol: String
@@ -507,7 +401,7 @@ enum OnboardingCopy {
         Benefit(
             symbol: "waveform.path.ecg",
             title: "Watch latency live",
-            detail: "See your ping, jitter, and probe failures in the free dashboard."
+            detail: "See your ping, jitter, and probe failures in the dashboard."
         ),
         Benefit(
             symbol: "airplayaudio",
@@ -516,17 +410,9 @@ enum OnboardingCopy {
         ),
     ]
 
-    static let licenseFieldPrompt = "Paste your license key"
-
-    static let crashReportCaption = "Ping Warden sends anonymous crash and error reports. You can turn this off in Settings → Advanced."
-
     static let protectionTitle = "What Ping Protection does"
     static let protectionBody = "AirDrop and AirPlay use a wireless interface called AWDL. When it wakes up, your Wi\u{2011}Fi can stutter. Ping Protection keeps it paused while you play."
     static let protectionCaption = "Illustration. Other causes of lag can still affect your connection. Pause protection any time to use AirDrop, AirPlay, and Handoff."
-
-    static let licenseTitle = "Add your license"
-    static let licenseBody = "Ping Protection is a one-time $15 purchase. The latency dashboard stays free."
-    static let licenseDonorNote = "Donated before version 4? Email \(LicenseCopy.supportEmail)."
 
     static func approveTitle(mode: OnboardingMode) -> String {
         mode == .repair ? "Approve the helper again" : "Approve the helper"
@@ -556,11 +442,10 @@ enum OnboardingCopy {
     struct Done: Equatable, Sendable {
         let title: String
         let body: String
-        /// Green for working protection, amber when a license is missing.
         let isComplete: Bool
     }
 
-    static func done(mode: OnboardingMode, protectionOn: Bool, canEnableProtection: Bool) -> Done {
+    static func done(mode: OnboardingMode, protectionOn: Bool) -> Done {
         if mode == .repair {
             return Done(
                 title: "Helper repaired",
@@ -576,22 +461,12 @@ enum OnboardingCopy {
                 isComplete: true
             )
         }
-        if canEnableProtection {
-            return Done(
-                title: "Helper is ready",
-                body: "Ping Protection is off. Turn it on from the menu bar icon or the dashboard.",
-                isComplete: true
-            )
-        }
         return Done(
             title: "Helper is ready",
-            body: "Ping Protection turns on once you add a license. Until then, the dashboard shows your latency for free.",
-            isComplete: false
+            body: "Ping Protection is off. Turn it on from the menu bar icon or the dashboard.",
+            isComplete: true
         )
     }
-
-    static let freeDashboardTitle = "You are set up for the free dashboard"
-    static let freeDashboardBody = "To turn on Ping Protection, add a license in Settings → License, then choose Finish Setup to approve the helper."
 
     static let repairFailedTitle = "Helper still not responding"
 }

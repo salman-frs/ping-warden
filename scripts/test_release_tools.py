@@ -24,8 +24,8 @@ class WidgetEntitlementTests(unittest.TestCase):
     def setUp(self):
         self.valid = {
             self.sandbox: True,
-            self.groups: ["PV3W52NDZ3.com.amesvt.pingwarden"],
-            self.lookup: ["com.amesvt.pingwarden.xpc"],
+            self.groups: ["PV3W52NDZ3.com.salmanfrs.pingwarden"],
+            self.lookup: ["com.salmanfrs.pingwarden.xpc"],
         }
 
     def validate(self, entitlements):
@@ -48,7 +48,7 @@ class WidgetEntitlementTests(unittest.TestCase):
 
     def test_signing_identity_metadata_is_allowed(self):
         entitlements = dict(self.valid)
-        entitlements["com.apple.application-identifier"] = "PV3W52NDZ3.com.amesvt.pingwarden.widget"
+        entitlements["com.apple.application-identifier"] = "PV3W52NDZ3.com.salmanfrs.pingwarden.widget"
         entitlements["com.apple.developer.team-identifier"] = "PV3W52NDZ3"
         self.assertEqual(self.validate(entitlements).returncode, 0)
 
@@ -129,7 +129,7 @@ validate_widget_signature_entitlements fixture.appex
 
 @unittest.skipUnless(sys.platform == "darwin", "release metadata uses macOS PlistBuddy")
 class SentryReleaseTests(unittest.TestCase):
-    def release_id(self, version="4.1.10", build="411000", bundle_id="com.amesvt.pingwarden", name="Ping Warden.app"):
+    def release_id(self, version="4.1.10", build="411000", bundle_id="com.salmanfrs.pingwarden", name="Ping Warden.app"):
         with tempfile.TemporaryDirectory() as directory:
             app = Path(directory) / name
             (app / "Contents").mkdir(parents=True)
@@ -144,12 +144,12 @@ class SentryReleaseTests(unittest.TestCase):
     def test_matches_runtime_version_and_build(self):
         result = self.release_id()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "com.amesvt.pingwarden@4.1.10+411000")
+        self.assertEqual(result.stdout.strip(), "com.salmanfrs.pingwarden@4.1.10+411000")
 
     def test_prerelease_filename_does_not_replace_runtime_version(self):
         result = self.release_id(version="4.2.0", build="42000", name="PingWarden-4.2.0-beta.1.app")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "com.amesvt.pingwarden@4.2.0+42000")
+        self.assertEqual(result.stdout.strip(), "com.salmanfrs.pingwarden@4.2.0+42000")
         self.assertNotEqual(result.stdout, self.release_id(version="4.2.0", build="42001").stdout)
 
     def test_rejects_incomplete_or_invalid_metadata(self):

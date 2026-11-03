@@ -34,7 +34,7 @@ enum DiagnosticsExporter {
     static func helperLaunchdJobSummary() -> String {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        task.arguments = ["print", "system/com.amesvt.pingwarden.helper"]
+        task.arguments = ["print", "system/com.salmanfrs.pingwarden.helper"]
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = FileHandle.nullDevice

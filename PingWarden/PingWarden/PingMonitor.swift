@@ -12,7 +12,7 @@
 import Foundation
 import os.log
 
-private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "PingMonitor")
+private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "PingMonitor")
 
 /// Monitors network latency in real-time using TCP connection timing
 /// Designed for cloud gaming - shows current ping, jitter, packet loss
@@ -73,7 +73,7 @@ class PingMonitor: @unchecked Sendable {
     private var history = RollingHistory<PingResult>()
     private let historyLock = NSLock()
     private let stateLock = NSLock()
-    private let queue = DispatchQueue(label: "com.amesvt.pingwarden.pingmonitor", qos: .utility)
+    private let queue = DispatchQueue(label: "com.salmanfrs.pingwarden.pingmonitor", qos: .utility)
     private let statsWindowSeconds: TimeInterval = 120
     private let historyRetentionSeconds: TimeInterval = 3900 // Keep slightly over one hour
     private let connectionTimeoutSeconds: Int = 1

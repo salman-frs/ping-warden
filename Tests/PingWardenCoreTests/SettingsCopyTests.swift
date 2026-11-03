@@ -58,35 +58,6 @@ final class SystemSettingsCopyTests: XCTestCase {
     }
 }
 
-final class LicenseCopyTests: XCTestCase {
-    func testRejectedKeyCopyBlamesNeitherTypoNorRefund() {
-        let copy = LicenseCopy.keyNotAccepted
-        XCTAssertTrue(copy.hasPrefix("Gumroad did not accept this key."))
-        XCTAssertFalse(copy.localizedCaseInsensitiveContains("refund"))
-        XCTAssertFalse(copy.localizedCaseInsensitiveContains("cancel"))
-        XCTAssertTrue(copy.contains(LicenseCopy.supportEmail))
-    }
-
-    func testRequiredCopyStatesThePriceOnce() {
-        for copy in [LicenseCopy.required, LicenseCopy.transitionEnded,
-                     LicenseCopy.stayedOffAtLaunch(transitionEnded: false),
-                     LicenseCopy.stayedOffAtLaunch(transitionEnded: true)] {
-            XCTAssertEqual(copy.components(separatedBy: "$15").count - 1, 1, copy)
-            XCTAssertEqual(copy.components(separatedBy: "Settings → License").count - 1, 1, copy)
-        }
-        XCTAssertEqual(LicenseCopy.required(transitionEnded: false), LicenseCopy.required)
-        XCTAssertTrue(LicenseCopy.required(transitionEnded: true).hasPrefix("The transition period has ended."))
-    }
-
-    /// The menu and Settings detect a license refusal by this word.
-    func testLicenseMessagesMentionALicense() {
-        for copy in [LicenseCopy.required, LicenseCopy.transitionEnded, LicenseCopy.revoked,
-                     LicenseCopy.stayedOffAtLaunch(transitionEnded: true)] {
-            XCTAssertTrue(copy.contains("license"), copy)
-        }
-    }
-}
-
 final class HelperTestReportTests: XCTestCase {
     func testHealthyCheckKeepsTheHelpersPlainMessage() {
         let message = "The helper answered (version 4.2.1). Ping Protection is on."
@@ -145,7 +116,6 @@ final class GatekeeperCopyTests: XCTestCase {
 final class SettingsCopyStyleTests: XCTestCase {
     func testCopyAvoidsEmDashesAndThreeDotEllipses() {
         let copies = [
-            LicenseCopy.required, LicenseCopy.transitionEnded, LicenseCopy.revoked, LicenseCopy.keyNotAccepted,
             HelperTestReport.notSetUp.message, HelperTestReport.notResponding.message,
             HelperTestReport.awdlStillActive.message, RepairResultCopy.failureMessage,
             GatekeeperCopy.message(osMajorVersion: 14), GatekeeperCopy.message(osMajorVersion: 15)

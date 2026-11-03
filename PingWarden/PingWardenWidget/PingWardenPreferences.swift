@@ -9,9 +9,10 @@
 //
 
 import Foundation
+import Security
 import os.log
 
-private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "WidgetPreferences")
+private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "WidgetPreferences")
 
 /// Manages shared state between app and widget using App Groups
 /// Note: This file should be kept in sync with PingWarden/PingWardenPreferences.swift
@@ -20,7 +21,6 @@ private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "WidgetPr
 final class PingWardenPreferences: @unchecked Sendable {
     static let shared = PingWardenPreferences()
 
-    private let appGroupID = "PV3W52NDZ3.com.amesvt.pingwarden"
     private let monitoringEnabledKey = "AWDLMonitoringEnabled"
     private let effectiveMonitoringEnabledKey = "AWDLEffectiveMonitoringEnabled"
     private let lastStateKey = "AWDLLastState"
@@ -40,19 +40,23 @@ final class PingWardenPreferences: @unchecked Sendable {
     /// intent handlers must surface an error instead of proceeding.
     let usesAppGroupSuite: Bool
 
-    /// Read-only defaults access for the license gate, which mirrors the
-    /// main app's cached license state from the same shared suite.
-    var defaultsForLicenseGate: UserDefaults {
-        defaults ?? .standard
-    }
-
     /// The intent checks usesAppGroupSuite before preparing a launch hint.
     var defaultsForLaunchHandoff: UserDefaults {
         defaults ?? .standard
     }
 
+    /// The App Group from this build's signed entitlements. The entitlements
+    /// prefix it with the signing team, so it is nil in an unsigned build.
+    static let appGroupID: String? = {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let groups = SecTaskCopyValueForEntitlement(
+                task, "com.apple.security.application-groups" as CFString, nil
+              ) as? [String] else { return nil }
+        return groups.first
+    }()
+
     private init() {
-        if let suite = UserDefaults(suiteName: appGroupID) {
+        if let groupID = Self.appGroupID, let suite = UserDefaults(suiteName: groupID) {
             log.debug("Successfully connected to App Group suite")
             defaults = suite
             usesAppGroupSuite = true
@@ -194,10 +198,10 @@ final class PingWardenPreferences: @unchecked Sendable {
 
 extension Notification.Name {
     // Use a namespaced notification name to avoid collisions with other apps
-    static let awdlMonitoringStateChanged = Notification.Name("com.amesvt.pingwarden.notification.MonitoringStateChanged")
-    static let awdlEffectiveMonitoringStateChanged = Notification.Name("com.amesvt.pingwarden.notification.EffectiveMonitoringStateChanged")
+    static let awdlMonitoringStateChanged = Notification.Name("com.salmanfrs.pingwarden.notification.MonitoringStateChanged")
+    static let awdlEffectiveMonitoringStateChanged = Notification.Name("com.salmanfrs.pingwarden.notification.EffectiveMonitoringStateChanged")
     // These are defined in the main app but included here for reference:
-    // static let controlCenterModeChanged = Notification.Name("com.amesvt.pingwarden.notification.ControlCenterModeChanged")
-    // static let gameModeAutoDetectChanged = Notification.Name("com.amesvt.pingwarden.notification.GameModeAutoDetectChanged")
-    // static let dockIconVisibilityChanged = Notification.Name("com.amesvt.pingwarden.notification.DockIconVisibilityChanged")
+    // static let controlCenterModeChanged = Notification.Name("com.salmanfrs.pingwarden.notification.ControlCenterModeChanged")
+    // static let gameModeAutoDetectChanged = Notification.Name("com.salmanfrs.pingwarden.notification.GameModeAutoDetectChanged")
+    // static let dockIconVisibilityChanged = Notification.Name("com.salmanfrs.pingwarden.notification.DockIconVisibilityChanged")
 }

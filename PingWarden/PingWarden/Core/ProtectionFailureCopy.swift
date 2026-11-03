@@ -122,28 +122,3 @@ enum SystemSettingsCopy {
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion
     }
 }
-
-/// License copy shared by the protection coordinator, the menu alert, and
-/// Settings. Gumroad answers `success: false` for a mistyped key and for a
-/// refunded or disabled one alike, so the rejection copy names neither.
-enum LicenseCopy {
-    /// Matches `LicenseManager.donationConversionEmail`, which this
-    /// Foundation-only file cannot reach.
-    static let supportEmail = "oliver@ames.consulting"
-
-    static let required = "Ping Protection needs a one-time $15 license. If you already bought one, enter the key in Settings → License. Donated before version 4? Email \(supportEmail)."
-
-    static let transitionEnded = "The transition period has ended. \(required)"
-
-    static func required(transitionEnded ended: Bool) -> String {
-        ended ? transitionEnded : required
-    }
-
-    static func stayedOffAtLaunch(transitionEnded ended: Bool) -> String {
-        "Ping Protection stayed off. \(required(transitionEnded: ended))"
-    }
-
-    static let revoked = "The license for Ping Protection is no longer valid, so protection turned off. Enter a valid key in Settings → License. If you think this is a mistake, email \(supportEmail)."
-
-    static let keyNotAccepted = "Gumroad did not accept this key. Check that you copied the whole key from your Gumroad receipt, then try again. If it still fails, email \(supportEmail)."
-}
