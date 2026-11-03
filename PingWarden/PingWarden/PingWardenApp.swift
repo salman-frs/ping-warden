@@ -66,8 +66,9 @@ struct PingWardenApp: App {
                 }
             }
             CommandGroup(replacing: .help) {
-                Link("Ping Warden Help", destination: ProjectLinks.repository)
+                Link("Ping Warden Help", destination: ProjectLinks.documentation)
                 Link("Troubleshooting", destination: ProjectLinks.troubleshooting)
+                Link("Report an Issue…", destination: ProjectLinks.reportIssue)
             }
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
@@ -1098,7 +1099,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDele
     }
 
     @objc private func openDocumentation() {
-        NSWorkspace.shared.open(ProjectLinks.repository)
+        NSWorkspace.shared.open(ProjectLinks.documentation)
     }
 
     private func ensureApplicationMenuItems() {
@@ -2668,13 +2669,15 @@ struct AboutView: View {
 
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 12) {
-                        aboutSourceLink
+                        aboutDocumentationLink
                         aboutTroubleshootingLink
+                        aboutIssueLink
                     }
 
                     VStack(spacing: 8) {
-                        aboutSourceLink
+                        aboutDocumentationLink
                         aboutTroubleshootingLink
+                        aboutIssueLink
                     }
                 }
                 .buttonStyle(.link)
@@ -2718,12 +2721,16 @@ struct AboutView: View {
         .background(.regularMaterial)
     }
 
-    private var aboutSourceLink: some View {
-        Link("Source Code", destination: ProjectLinks.repository)
+    private var aboutDocumentationLink: some View {
+        Link("Documentation", destination: ProjectLinks.documentation)
     }
 
     private var aboutTroubleshootingLink: some View {
         Link("Troubleshooting", destination: ProjectLinks.troubleshooting)
+    }
+
+    private var aboutIssueLink: some View {
+        Link("Report an Issue", destination: ProjectLinks.reportIssue)
     }
 }
 

@@ -72,9 +72,9 @@ enum ControlCenterSupport {
             case .unsupportedOS:
                 return "Control Center widgets in Ping Warden require macOS 26 or newer."
             case .missingWidgetExtension:
-                return "The Ping Warden widget extension was not found in this app bundle. Build Ping Warden together with its widget target."
+                return "The Ping Warden widget extension was not found in this app bundle. Reinstall Ping Warden."
             case .unsignedOrUntrusted:
-                return "Control Center widgets require Ping Warden to be signed with its team's certificate."
+                return "Control Center widgets require a signed copy of Ping Warden."
             }
         }
     }
@@ -115,15 +115,8 @@ enum ControlCenterSupport {
             return .unsignedOrUntrusted
         }
 
-        var signingInfo: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &signingInfo) == errSecSuccess,
-              let team = (signingInfo as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String,
-              !team.isEmpty else {
-            return .unsignedOrUntrusted
-        }
-
         var requirement: SecRequirement?
-        let requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        let requirementString = "anchor apple generic and certificate leaf[subject.OU] exists"
         guard SecRequirementCreateWithString(requirementString as CFString, [], &requirement) == errSecSuccess,
               let req = requirement else {
             return .unsignedOrUntrusted

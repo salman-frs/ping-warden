@@ -8,6 +8,7 @@
 import Foundation
 
 enum ProjectLinks {
-    static let repository = URL(string: "https://github.com/salman-frs/ping-warden")!
+    static let documentation = URL(string: "https://github.com/salman-frs/ping-warden")!
+    static let reportIssue = URL(string: "https://github.com/salman-frs/ping-warden/issues/new/choose")!
     static let troubleshooting = URL(string: "https://github.com/salman-frs/ping-warden/blob/main/PingWarden/TROUBLESHOOTING.md")!
 }

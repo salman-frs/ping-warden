@@ -20,7 +20,7 @@ enum HelperBundleValidator {
         var userMessage: String {
             switch self {
             case .unsuitableLocation:
-                return "Quit Ping Warden, move it to Applications, and open it from there before setting up or repairing Ping Protection. macOS can prevent its background helper from starting in Downloads, Desktop, Documents, or a temporary downloaded-app location. Your settings and license will stay saved."
+                return "Quit Ping Warden, move it to Applications, and open it from there before setting up or repairing Ping Protection. macOS can prevent its background helper from starting in Downloads, Desktop, Documents, or a temporary downloaded-app location. Your settings will stay saved."
             case .binaryMissing:
                 return "Helper binary not found in app bundle.\n\nPlease reinstall the app."
             case .plistMissing:

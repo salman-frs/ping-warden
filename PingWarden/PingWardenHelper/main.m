@@ -51,8 +51,8 @@ static NSXPCListener *gListener = nil;
 /// CFBundleShortVersionString — the helper embeds its Info.plist via
 /// CREATE_INFOPLIST_SECTION_IN_BINARY — and fall back to the compiled-in
 /// constant only if the embedded value is somehow unavailable. Versions are
-/// bumped by hand in lockstep with the app; scripts/release_validation.sh
-/// fails the release if any copy drifts. This keeps the version reported over
+/// bumped by hand in lockstep with the app; the CI version check
+/// fails if any copy drifts. This keeps the version reported over
 /// XPC (health check, diagnostics export) honest instead of frozen at whatever
 /// the macro last said.
 static NSString *helperVersionString(void) {

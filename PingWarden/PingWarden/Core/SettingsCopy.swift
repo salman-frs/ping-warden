@@ -72,12 +72,12 @@ enum GatekeeperCopy {
 
     static func message(osMajorVersion: Int) -> String {
         let openAnyway = "open System Settings → Privacy & Security, scroll to Security, and click Open Anyway for Ping Warden."
-        let steps: String
+        let ownBuild: String
         if osMajorVersion >= 15 {
-            steps = "Try to open it once, then \(openAnyway)"
+            ownBuild = "If you built this copy yourself, try to open it once, then \(openAnyway)"
         } else {
-            steps = "Control-click it in Finder and choose Open. You can also try to open it once, then \(openAnyway)"
+            ownBuild = "If you built this copy yourself, Control-click it in Finder and choose Open. You can also try to open it once, then \(openAnyway)"
         }
-        return "This copy is not signed with a Developer ID, so macOS blocks it until you allow it. \(steps) Ping Warden will never ask you to remove quarantine attributes in Terminal."
+        return "\(ownBuild) Ping Warden will never ask you to remove quarantine attributes in Terminal."
     }
 }
