@@ -32,7 +32,7 @@ struct PingProtectionValueProvider: ControlValueProvider {
 
     @MainActor
     private static func containingAppIsRunning() -> Bool {
-        let identifier = "com.amesvt.pingwarden"
+        let identifier = "com.salmanfrs.pingwarden"
         let appURL = Bundle.main.bundleURL
             .deletingLastPathComponent()
             .deletingLastPathComponent()

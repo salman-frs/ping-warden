@@ -28,7 +28,7 @@ final class ControlCenterLaunchHandoffTests: XCTestCase {
         XCTAssertTrue(InterfaceVisibilityPolicy.shouldOpenSettingsAtLaunch(
             mode: .controlCenterOnly, controlCenterAvailable: true,
             showDockIconPreference: false, launchReason: .direct,
-            welcomeVisible: false, licenseNoticeVisible: false))
+            welcomeVisible: false))
     }
 
     func testAbandonedAndFutureHintsAreRemoved() {

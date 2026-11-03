@@ -6,18 +6,12 @@ on:
   pull_request:
     branches: [main]
 
-# CI builds the complete unsigned application bundle. Distribution signing and
-# notarization remain local release operations because they require private
-# Developer ID and notary credentials.
-
 jobs:
   scope:
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.scope.outputs.native }}
-      site: ${{ steps.scope.outputs.site }}
       shell: ${{ steps.scope.outputs.shell }}
-      feeds: ${{ steps.scope.outputs.feeds }}
     steps:
       - name: Checkout change history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,7 +26,7 @@ jobs:
 
   build:
     needs: scope
-    if: needs.scope.outputs.native == 'true' || needs.scope.outputs.feeds == 'true'
+    if: needs.scope.outputs.native == 'true'
     runs-on: macos-26
 
     steps:
@@ -41,12 +35,6 @@ jobs:
 
     - name: Show Xcode version
       run: xcodebuild -version
-
-    - name: Validate appcast XML
-      run: |
-        xmllint --noout appcast.xml
-        grep -q '<!-- sparkle-signatures:' appcast.xml
-        echo "✓ appcast.xml is valid XML"
 
     - name: Validate version consistency
       if: needs.scope.outputs.native == 'true'
@@ -90,20 +78,6 @@ jobs:
       if: needs.scope.outputs.native == 'true'
       run: python3 scripts/test_coordinator.py
 
-    - name: Test crash reporting privacy and lifecycle
-      if: needs.scope.outputs.native == 'true'
-      run: bash scripts/test_crash_reporter.sh
-
-    - name: Test release metadata and buyer content
-      if: needs.scope.outputs.native == 'true'
-      run: python3 scripts/test_release_tools.py
-
-    - name: Verify update feeds against the app public key
-      run: |
-        PUBLIC_KEY=$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' PingWarden/PingWarden/Info.plist)
-        swift scripts/verify_sparkle.swift appcast.xml "$PUBLIC_KEY"
-        swift scripts/verify_sparkle.swift appcast-beta.xml "$PUBLIC_KEY"
-
     - name: Build complete app
       if: needs.scope.outputs.native == 'true'
       run: |
@@ -134,21 +108,10 @@ jobs:
         echo "Embedded widget:"
         ls -ld "$APP/Contents/PlugIns/PingWardenWidget.appex"
         echo ""
+        echo "Helper launch daemon:"
+        ls -l "$APP/Contents/Library/LaunchDaemons/com.salmanfrs.pingwarden.helper.plist"
+        echo ""
         echo "=== Build verification passed ==="
-
-    - name: Verify Bundle Structure Requirements
-      if: needs.scope.outputs.native == 'true'
-      run: |
-        APP="$RUNNER_TEMP/PingWardenDerivedData/Build/Products/Release/Ping Warden.app"
-        RELEASE_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' PingWarden/PingWarden/Info.plist)
-        source scripts/release_validation.sh
-        if validate_app_artifact "$APP" 9.9.9 0; then
-          echo "ERROR: stale-artifact validation probe unexpectedly passed"
-          exit 1
-        fi
-        echo "✓ Stale-artifact validation probe failed as expected"
-        validate_app_artifact "$APP" "$RELEASE_VERSION" 0
-        echo "✓ Complete bundle structure and release metadata verified"
 
   # The core package (PingWarden/PingWarden/Core) is pure Foundation/POSIX
   # and compiles on Linux; running the suite here catches portability
@@ -180,14 +143,9 @@ jobs:
       run: |
         set -e
         scripts=(
-          PingWarden/PingWarden/notarize.sh
-          PingWarden/PingWarden/release.sh
-          PingWarden/create-dmg.sh
-          scripts/render_release_notes.sh
-          scripts/release_validation.sh
+          script/build_and_run.sh
           scripts/run-smoke-tests.sh
           scripts/test_helper.sh
-          scripts/test_crash_reporter.sh
         )
         for f in "${scripts[@]}"; do
           echo "=== bash -n $f ==="

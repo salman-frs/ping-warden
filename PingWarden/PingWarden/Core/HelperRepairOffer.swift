@@ -12,9 +12,8 @@ import Foundation
 /// passes without a word. The offer only asks: Repair starts, and macOS is
 /// asked for anything, only after the person clicks.
 ///
-/// Nobody is offered Repair while protection is not needed, so an
-/// unlicensed person on the free dashboard, or anyone who turned
-/// protection off, is never asked about the helper.
+/// Nobody is offered Repair while protection is not needed, so anyone who
+/// turned protection off is never asked about the helper.
 enum HelperRepairOffer {
     /// What is wrong with the helper.
     enum Problem: String, Equatable, Sendable {
@@ -58,8 +57,6 @@ enum HelperRepairOffer {
     struct State: Equatable, Sendable {
         /// The helper's problem right now, if any.
         let problem: Problem?
-        /// A license or the transition allows protection.
-        let licenseAllowsProtection: Bool
         /// Protection is on, saved as on, being turned on, or held by a
         /// latency or Game Mode session. A pause counts: it ends on its own
         /// and then needs the helper.
@@ -110,8 +107,7 @@ enum HelperRepairOffer {
                 // the same episode: it is not offered twice.
                 episode?.problem = problem
             }
-            guard let episode, !episode.offered,
-                  state.licenseAllowsProtection, state.protectionNeeded else {
+            guard let episode, !episode.offered, state.protectionNeeded else {
                 return .none
             }
             // Whatever is in progress may settle it; look again later.

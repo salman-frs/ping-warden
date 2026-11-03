@@ -87,34 +87,6 @@ struct ChartHost {
     // INSERT_TIMEFRAME
 }
 
-// An inert verifier holds requests until the test explicitly settles them.
-@MainActor final class SubmissionVerifier {
-    var isVerifying = false
-    var keys: [String] = []
-    var continuation: CheckedContinuation<Bool, Never>?
-    func verify(key: String) async -> Bool {
-        isVerifying = true
-        keys.append(key)
-        let result = await withCheckedContinuation { continuation = $0 }
-        isVerifying = false
-        return result
-    }
-    func finish(_ result: Bool) { continuation?.resume(returning: result); continuation = nil }
-}
-// Records the setup hand-off a verified license triggers in production.
-@MainActor enum OnboardingPresenter {
-    static var activations = 0
-    static func licenseActivated() { activations += 1 }
-}
-@MainActor final class SubmissionHost {
-    let license = SubmissionVerifier()
-    var keyField = ""
-    var licenseMessage: String?
-    let licenseMessageForLastResult = "Offline fixture"
-    func submit() { submitLicenseKey() }
-    // INSERT_SUBMIT
-}
-
 final class CustomTargetHost {
     let customTargetStore: CustomPingTargetStore
     var customTargets: [CustomPingTarget] = []
@@ -165,36 +137,6 @@ final class CustomTargetHost {
               "production submission rejects URL before saving")
         check(defaults.data(forKey: "DashboardCustomPingTargets") == stored && targets.rebuildCount == 1,
               "rejected target leaves persisted and displayed targets unchanged")
-        let submission = SubmissionHost()
-        submission.keyField = " \n "
-        submission.submit()
-        await settle()
-        check(submission.license.keys.isEmpty, "empty Return submission never reaches verifier")
-        submission.keyField = "synthetic-key"
-        submission.submit()
-        submission.submit()
-        await settle()
-        check(submission.license.keys == ["synthetic-key"], "queued Return/click submissions start only one verification")
-        submission.submit()
-        await settle()
-        check(submission.license.keys.count == 1, "in-flight submission stays disabled")
-        submission.license.finish(false)
-        await settle()
-        check(submission.licenseMessage == "Offline fixture", "failed verification presents its result")
-        check(submission.keyField == "synthetic-key", "failed verification preserves entered key")
-        check(OnboardingPresenter.activations == 0, "failed verification does not continue setup")
-        submission.submit()
-        await settle()
-        submission.keyField = "edited-during-request"
-        submission.license.finish(true)
-        await settle()
-        check(submission.keyField == "edited-during-request", "successful earlier request preserves newer editing")
-        submission.submit()
-        await settle()
-        submission.license.finish(true)
-        await settle()
-        check(submission.keyField.isEmpty, "successful verification clears its own submitted key")
-        check(OnboardingPresenter.activations == 2, "each successful verification continues setup once")
 
         let host = ObserverHost()
         host.start()

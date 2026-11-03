@@ -9,27 +9,14 @@ import ServiceManagement
 @MainActor
 enum OnboardingPresenter {
     static var handler: ((OnboardingMode) -> Void)?
-    /// Installed by the delegate; see `licenseActivated()`.
-    static var licenseActivationHandler: (() -> Void)?
 
     static func present(_ mode: OnboardingMode) {
         handler?(mode)
     }
-
-    /// A license was just activated outside the setup window (Settings →
-    /// License, which the Dashboard unlock card opens). Protection turns on
-    /// when the helper is ready; otherwise setup continues at the idle
-    /// Approve step, or Repair runs for an approved helper that stopped
-    /// answering (`LicenseActivationFollowUp`). The setup window's own
-    /// license step continues by itself and never calls this, so the
-    /// window cannot open twice.
-    static func licenseActivated() {
-        licenseActivationHandler?()
-    }
 }
 
-/// Runs the setup window: step navigation, the license field, and the
-/// Approve step's live state. Step and approval decisions come from
+/// Runs the setup window: step navigation and the Approve step's live
+/// state. Step and approval decisions come from
 /// `OnboardingNavigator` and `HelperApprovalTracker` in Core; this class
 /// feeds them the live registration status and performs the actions.
 @MainActor
@@ -42,20 +29,12 @@ final class OnboardingModel: ObservableObject {
 
     @Published private(set) var navigator: OnboardingNavigator
     @Published private(set) var tracker: HelperApprovalTracker
-    @Published var licenseKey = ""
-    @Published private(set) var licenseMessage: String?
-    @Published private(set) var licenseMessageIsError = false
     /// The coordinator's final word on a Repair, shown on Done or on the
     /// failure screen.
     @Published private(set) var repairReport: HelperTestReport?
     @Published private(set) var protectionOnAtDone = false
     @Published var showsHelperInfo = false
     @Published var showsProtectionIllustration = false
-    /// Set when this Repair follows a license the person just activated:
-    /// a successful Repair then turns protection on, instead of only
-    /// restoring the saved choice as Repair otherwise does. Cleared when
-    /// the window switches to another entry point.
-    var turnsProtectionOnWhenRepaired = false
 
     var actions: Actions
     private var pollTimer: Timer?
@@ -64,14 +43,6 @@ final class OnboardingModel: ObservableObject {
     /// second press joins it instead of starting another.
     private var operationInFlight = false
     private let isPreview: Bool
-    /// A preview's fixed license state; nil follows the live license.
-    private let previewCanEnableProtection: Bool?
-
-    /// Whether protection can be turned on: a valid license or an active
-    /// transition. Views observe `LicenseManager` for changes.
-    var canEnableProtection: Bool {
-        previewCanEnableProtection ?? LicenseManager.shared.canEnableProtection
-    }
 
     var mode: OnboardingMode { navigator.mode }
     var step: OnboardingStep { navigator.step }
@@ -79,8 +50,7 @@ final class OnboardingModel: ObservableObject {
     init(mode: OnboardingMode, actions: Actions = Actions()) {
         self.actions = actions
         self.isPreview = false
-        self.previewCanEnableProtection = nil
-        self.navigator = OnboardingNavigator(mode: mode, canEnableProtection: LicenseManager.shared.canEnableProtection)
+        self.navigator = OnboardingNavigator(mode: mode)
         self.tracker = Self.freshTracker(mode: mode)
         stepDidChange()
     }
@@ -88,11 +58,10 @@ final class OnboardingModel: ObservableObject {
     /// A model that shows one fixed state and performs nothing, for
     /// previews and screenshots.
     init(preview mode: OnboardingMode, step: OnboardingStep, tracker: HelperApprovalTracker,
-         canEnableProtection: Bool, protectionOn: Bool = false, repairReport: HelperTestReport? = nil) {
+         protectionOn: Bool = false, repairReport: HelperTestReport? = nil) {
         self.actions = Actions()
         self.isPreview = true
-        self.previewCanEnableProtection = canEnableProtection
-        var navigator = OnboardingNavigator(mode: mode, canEnableProtection: canEnableProtection)
+        var navigator = OnboardingNavigator(mode: mode)
         navigator.show(step)
         self.navigator = navigator
         self.tracker = tracker
@@ -105,33 +74,12 @@ final class OnboardingModel: ObservableObject {
     func restart(mode: OnboardingMode) {
         guard !isPreview else { return }
         stopTimers()
-        navigator = OnboardingNavigator(mode: mode, canEnableProtection: LicenseManager.shared.canEnableProtection)
+        navigator = OnboardingNavigator(mode: mode)
         if !operationInFlight {
             tracker = Self.freshTracker(mode: mode)
         }
         repairReport = nil
-        turnsProtectionOnWhenRepaired = false
         stepDidChange()
-    }
-
-    /// Switch to Repair after a license was activated while Repair's check
-    /// found a helper that must be approved again. Repair then ends with
-    /// protection on.
-    func showRepairAfterLicense() {
-        guard !isPreview else { return }
-        if mode != .repair {
-            restart(mode: .repair)
-        }
-        turnsProtectionOnWhenRepaired = true
-    }
-
-    /// Show the idle Approve step after a license arrived from Settings
-    /// while this window was on another screen. Finish Setup with a license
-    /// starts at approval, and nothing is asked of macOS until Approve
-    /// Helper is clicked.
-    func showApprovalAfterLicense() {
-        guard !isPreview, mode != .repair, step != .approve else { return }
-        restart(mode: .finishSetup)
     }
 
     func windowWillClose() {
@@ -142,7 +90,7 @@ final class OnboardingModel: ObservableObject {
 
     func continueTapped() {
         guard !isPreview else { return }
-        navigator.advance(canEnableProtection: LicenseManager.shared.canEnableProtection)
+        navigator.advance()
         stepDidChange()
     }
 
@@ -172,11 +120,6 @@ final class OnboardingModel: ObservableObject {
         SMAppService.openSystemSettingsLoginItems()
     }
 
-    func buyLicense() {
-        guard !isPreview else { return }
-        NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "onboarding"))
-    }
-
     func selectIllustration(showsProtection: Bool) {
         chartTimer?.invalidate()
         chartTimer = nil
@@ -189,11 +132,6 @@ final class OnboardingModel: ObservableObject {
         chartTimer = nil
         switch step {
         case .approve:
-            // Approval only follows a license or an active transition.
-            if navigator.requireLicenseForApproval(canEnableProtection: LicenseManager.shared.canEnableProtection) {
-                stepDidChange()
-                return
-            }
             enterApproveStep()
         case .protection:
             stopPolling()
@@ -281,7 +219,7 @@ final class OnboardingModel: ObservableObject {
                     ? await experience.reapproveHelper()
                     : await experience.repairHelperConnection()
                 operationInFlight = false
-                await handleRepairReport(report)
+                handleRepairReport(report)
             }
         } else {
             // Covers a first registration, an earlier pending request, and
@@ -297,11 +235,7 @@ final class OnboardingModel: ObservableObject {
 
     private func finishSetup(registered: Bool) async {
         if registered {
-            // Setup is complete without a license too; only the protection
-            // toggle is gated, so an unlicensed setup leaves it off.
-            if LicenseManager.shared.canEnableProtection {
-                _ = await ProtectionExperienceCoordinator.shared.setPersistentProtection(true)
-            }
+            _ = await ProtectionExperienceCoordinator.shared.setPersistentProtection(true)
             operationInFlight = false
             showDone()
             return
@@ -317,24 +251,7 @@ final class OnboardingModel: ObservableObject {
         tracker.registrationFailed(message: message)
     }
 
-    private func handleRepairReport(_ report: HelperTestReport) async {
-        var report = report
-        if report.title == RepairResultCopy.successTitle,
-           mode == .repair, turnsProtectionOnWhenRepaired {
-            // This Repair followed a license activation, which is meant to
-            // end with protection on. Repair itself restored the saved
-            // choice; turn protection on through the toggle's own path.
-            turnsProtectionOnWhenRepaired = false
-            let decision = await ProtectionExperienceCoordinator.shared.turnOnProtectionAfterLicenseActivation()
-            if decision == .turnOn {
-                report = HelperTestReport(
-                    title: report.title,
-                    message: RepairResultCopy.successMessage(
-                        protectionOn: PingWardenMonitor.shared.isMonitoringActive
-                    )
-                )
-            }
-        }
+    private func handleRepairReport(_ report: HelperTestReport) {
         if report.title == RepairResultCopy.failureTitle {
             if Self.liveStatus() == .enabled {
                 // Approved, but the helper still does not answer.
@@ -387,67 +304,6 @@ final class OnboardingModel: ObservableObject {
         stopPolling()
         chartTimer?.invalidate()
         chartTimer = nil
-    }
-
-    // MARK: License step
-
-    func activateLicense() {
-        guard !isPreview else { return }
-        let license = LicenseManager.shared
-        let key = licenseKey
-        guard !license.isVerifying, !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        licenseMessage = nil
-        Task { @MainActor in
-            let entitled = await license.verify(key: key)
-            if entitled {
-                licenseMessage = "License verified. Ping Protection is available."
-                licenseMessageIsError = false
-                if licenseKey == key { licenseKey = "" }
-                guard step == .license, mode != .repair else { return }
-                // A valid key continues straight into helper approval, and
-                // setup turns protection on when approval finishes. An
-                // approved helper that stopped answering goes through
-                // Repair's check instead.
-                PingWardenMonitor.shared.refreshHelperStatus()
-                let followUp = LicenseActivationFollowUp.decide(
-                    canEnableProtection: LicenseManager.shared.canEnableProtection,
-                    helperStatus: Self.liveStatus(),
-                    helperResponding: !ProtectionExperienceCoordinator.shared.shouldOfferHelperRepair,
-                    openWindow: LicenseActivationFollowUp.OpenWindow(mode: mode, step: step)
-                )
-                if followUp == .repairHelper {
-                    await repairAfterLicense()
-                } else {
-                    continueTapped()
-                }
-            } else {
-                licenseMessage = LicenseSettingsContent.message(for: license.lastVerificationResult)
-                licenseMessageIsError = true
-            }
-        }
-    }
-
-    /// Repair's check, run in place after a license was activated on the
-    /// license step while the approved helper was not answering. A helper
-    /// that must be approved again switches this window to Repair, which
-    /// waits for Approve Helper and ends with protection on. One that
-    /// answers after all continues to approval, which confirms it, turns
-    /// protection on, and shows Done.
-    private func repairAfterLicense() async {
-        licenseMessage = "License verified. Checking Ping Warden's helper…"
-        licenseMessageIsError = false
-        let check = await ProtectionExperienceCoordinator.shared.checkHelperForRepair()
-        // The person may have moved on, or the app may be quitting.
-        guard !ProtectionExperienceCoordinator.shared.isTerminating,
-              step == .license, mode != .repair else { return }
-        licenseMessage = "License verified. Ping Protection is available."
-        switch check {
-        case .needsApproval:
-            showRepairAfterLicense()
-            actions.bringToFront()
-        case .finished:
-            continueTapped()
-        }
     }
 
     // MARK: Live status

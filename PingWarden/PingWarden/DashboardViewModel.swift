@@ -738,7 +738,7 @@ class DashboardViewModel: ObservableObject {
     /// cooperative-pool threads for seconds (timeout × samples × targets),
     /// starving every other async task in the app.
     nonisolated private static let baselineProbeQueue = DispatchQueue(
-        label: "com.amesvt.pingwarden.baselineprobe",
+        label: "com.salmanfrs.pingwarden.baselineprobe",
         qos: .utility,
         attributes: .concurrent
     )
@@ -998,7 +998,7 @@ final class GatewayAddressCache: @unchecked Sendable {
         pathMonitor.pathUpdateHandler = { [weak self] _ in
             self?.invalidate()
         }
-        pathMonitor.start(queue: DispatchQueue(label: "com.amesvt.pingwarden.gatewaycache", qos: .utility))
+        pathMonitor.start(queue: DispatchQueue(label: "com.salmanfrs.pingwarden.gatewaycache", qos: .utility))
     }
 
     /// Blocks while `route` runs on a cache miss, so call it off the main

@@ -64,11 +64,11 @@ final class ControlProtectionStateTests: XCTestCase {
 
     private func matchesApp(
         url: URL?,
-        identifier: String? = "com.amesvt.pingwarden",
+        identifier: String? = "com.salmanfrs.pingwarden",
         terminated: Bool = false
     ) -> Bool {
         ControlProtectionState.matchesContainingApp(
-            expectedBundleIdentifier: "com.amesvt.pingwarden",
+            expectedBundleIdentifier: "com.salmanfrs.pingwarden",
             expectedBundleURL: appURL,
             runningBundleIdentifier: identifier,
             runningBundleURL: url,

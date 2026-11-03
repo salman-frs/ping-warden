@@ -7,11 +7,10 @@ final class HelperRepairOfferTests: XCTestCase {
 
     private func state(
         _ problem: Offer.Problem? = .notResponding,
-        licensed: Bool = true,
         needed: Bool = true,
         busy: Bool = false
     ) -> Offer.State {
-        Offer.State(problem: problem, licenseAllowsProtection: licensed, protectionNeeded: needed, busy: busy)
+        Offer.State(problem: problem, protectionNeeded: needed, busy: busy)
     }
 
     private func at(_ seconds: TimeInterval) -> Date { start.addingTimeInterval(seconds) }
@@ -58,14 +57,6 @@ final class HelperRepairOfferTests: XCTestCase {
         XCTAssertEqual(tracker.evaluate(state(), now: at(10)), .offer(.notResponding))
         // The app could not show it (a game in front): not marked offered.
         XCTAssertEqual(tracker.evaluate(state(), now: at(60)), .offer(.notResponding))
-    }
-
-    func testUnlicensedPeopleAreNeverAskedAboutTheHelper() {
-        var tracker = Offer.Tracker()
-        for seconds in [0.0, 10, 100] {
-            XCTAssertEqual(tracker.evaluate(state(licensed: false), now: at(seconds)), .none)
-            XCTAssertEqual(tracker.evaluate(state(.notApproved, licensed: false), now: at(seconds)), .none)
-        }
     }
 
     func testNoOfferWhileProtectionDoesNotNeedTheHelper() {

@@ -6,8 +6,8 @@
 //  Center Only replaces the menu bar icon with the Control Center toggle and
 //  also hides the Dock icon, so the app has no icon at all. Opening the app
 //  directly is then the way to Settings. Launches the person did not ask to
-//  see, such as login, session restore, an update relaunch, or the Control
-//  Center toggle, stay silent.
+//  see, such as login, session restore, or the Control Center toggle, stay
+//  silent.
 //
 //  Version 4.2.1 and earlier had a different setting, Hide Menu Bar Icon,
 //  saved under `ControlCenterWidgetEnabled`. It hid only the menu bar icon
@@ -39,8 +39,6 @@ enum LaunchReason: Equatable, Sendable {
     /// macOS relaunched the app to restore saved state, for example through
     /// "Reopen windows when logging back in".
     case sessionRestore
-    /// Sparkle relaunched the app after installing an update.
-    case updateRelaunch
     /// The Control Center toggle started the app to reach the helper.
     case controlCenter
 
@@ -59,8 +57,6 @@ struct LaunchSignals: Equatable, Sendable {
     var launchIsDefault = true
     /// The process arguments, retained for launches from older callers.
     var arguments: [String] = []
-    /// A fresh marker left by `updaterWillRelaunchApplication`.
-    var relaunchedByUpdater = false
     /// A one-use App Group hint from the sandboxed Control Center widget.
     var launchedByControlCenter = false
 }
@@ -83,33 +79,6 @@ struct LaunchReasonState: Equatable, Sendable {
     }
 }
 
-/// Launch opens Settings only after every earlier launch window has had its
-/// chance, so Settings never lands on top of the welcome window or the
-/// license notice. Each step settles exactly once.
-struct LaunchPresentationGate: Equatable, Sendable {
-    enum Step: Sendable {
-        /// The welcome decision, including the helper launch probe.
-        case welcome
-        /// The first license-notice decision at launch.
-        case licenseNotice
-    }
-
-    private(set) var welcomeSettled = false
-    private(set) var licenseNoticeSettled = false
-    private(set) var hasOpened = false
-
-    /// Returns true exactly once: when the last outstanding step settles.
-    mutating func settle(_ step: Step) -> Bool {
-        switch step {
-        case .welcome: welcomeSettled = true
-        case .licenseNotice: licenseNoticeSettled = true
-        }
-        guard welcomeSettled, licenseNoticeSettled, !hasOpened else { return false }
-        hasOpened = true
-        return true
-    }
-}
-
 enum InterfaceVisibilityPolicy {
     /// Retained for compatibility. Sandboxed widgets use the App Group hint
     /// because NSWorkspace ignores their launch arguments.
@@ -118,12 +87,6 @@ enum InterfaceVisibilityPolicy {
     /// Saved by the new Control Center Only toggle. The legacy key,
     /// `ControlCenterWidgetEnabled`, keeps its 4.2.1 meaning.
     static let controlCenterOnlyPreferenceKey = "ControlCenterOnlyEnabled"
-
-    /// How long an update-relaunch marker counts. Sparkle usually relaunches
-    /// within seconds, but an installer that asks for an administrator
-    /// password can wait on the person. A marker left by a relaunch that
-    /// never happened must not silence a launch made much later.
-    static let updateRelaunchMarkerLifetime: TimeInterval = 600
 
     /// Resolves the saved preferences. Control Center Only wins when it is
     /// on. Otherwise the legacy key decides, so someone who chose Hide Menu
@@ -172,16 +135,8 @@ enum InterfaceVisibilityPolicy {
             return .controlCenter
         }
         if signals.launchedAsLoginItem { return .loginItem }
-        if signals.relaunchedByUpdater { return .updateRelaunch }
         if !signals.launchIsDefault { return .sessionRestore }
         return .direct
-    }
-
-    /// Whether a marker saved at `markedAt` still describes this launch.
-    static func isUpdateRelaunchMarkerFresh(markedAt: Date?, now: Date) -> Bool {
-        guard let markedAt else { return false }
-        let age = now.timeIntervalSince(markedAt)
-        return age >= 0 && age <= updateRelaunchMarkerLifetime
     }
 
     /// Open Settings at launch when the app has no icon, the person opened
@@ -191,8 +146,7 @@ enum InterfaceVisibilityPolicy {
         controlCenterAvailable: Bool,
         showDockIconPreference: Bool,
         launchReason: LaunchReason,
-        welcomeVisible: Bool,
-        licenseNoticeVisible: Bool
+        welcomeVisible: Bool
     ) -> Bool {
         let menuBarIconHidden = isMenuBarIconHidden(mode: mode, controlCenterAvailable: controlCenterAvailable)
         let dockIconShown = isDockIconShown(
@@ -202,7 +156,7 @@ enum InterfaceVisibilityPolicy {
         )
         guard menuBarIconHidden, !dockIconShown else { return false }
         guard !launchReason.isSilent else { return false }
-        return !welcomeVisible && !licenseNoticeVisible
+        return !welcomeVisible
     }
 }
 

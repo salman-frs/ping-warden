@@ -72,9 +72,9 @@ enum ControlCenterSupport {
             case .unsupportedOS:
                 return "Control Center widgets in Ping Warden require macOS 26 or newer."
             case .missingWidgetExtension:
-                return "The Ping Warden widget extension was not found in this app bundle. Reinstall Ping Warden from a signed release."
+                return "The Ping Warden widget extension was not found in this app bundle. Reinstall Ping Warden."
             case .unsignedOrUntrusted:
-                return "Control Center widgets require the app to be signed with Ping Warden's Developer ID certificate."
+                return "Control Center widgets require a signed copy of Ping Warden."
             }
         }
     }
@@ -116,7 +116,7 @@ enum ControlCenterSupport {
         }
 
         var requirement: SecRequirement?
-        let requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"PV3W52NDZ3\""
+        let requirementString = "anchor apple generic and certificate leaf[subject.OU] exists"
         guard SecRequirementCreateWithString(requirementString as CFString, [], &requirement) == errSecSuccess,
               let req = requirement else {
             return .unsignedOrUntrusted
@@ -136,7 +136,7 @@ enum ControlCenterSupport {
 final class ControlCenterRefresher {
     static let shared = ControlCenterRefresher()
 
-    private let log = Logger(subsystem: "com.amesvt.pingwarden", category: "ControlCenter")
+    private let log = Logger(subsystem: "com.salmanfrs.pingwarden", category: "ControlCenter")
     private var coalescer = ControlCenterRefreshCoalescer()
 
     private init() {}

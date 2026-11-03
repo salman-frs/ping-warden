@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  com.amesvt.pingwarden.helper.plist
+  com.salmanfrs.pingwarden.helper.plist
   SMAppService daemon configuration for PingWardenHelper
 
   Copyright (c) 2025-2026 Oliver Ames. All rights reserved.
@@ -10,20 +10,20 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.amesvt.pingwarden.helper</string>
+	<string>com.salmanfrs.pingwarden.helper</string>
 
 	<key>BundleProgram</key>
 	<string>Contents/MacOS/PingWardenHelper</string>
 
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
-		<string>com.amesvt.pingwarden</string>
-		<string>com.amesvt.pingwarden.widget</string>
+		<string>com.salmanfrs.pingwarden</string>
+		<string>com.salmanfrs.pingwarden.widget</string>
 	</array>
 
 	<key>MachServices</key>
 	<dict>
-		<key>com.amesvt.pingwarden.xpc</key>
+		<key>com.salmanfrs.pingwarden.xpc</key>
 		<true/>
 	</dict>
 

@@ -314,26 +314,7 @@ do {
     settle()
 }
 
-// B4 (B-T1): the app's own notification echo keeps a license message.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    let connection = MainActor.assumeIsolated { turnOnThroughCoordinator() }
-    LicenseManager.shared.canEnableProtection = false
-    let done = launchVoid { await coordinator.handleLicenseReverification() }
-    spin()
-    take(connection.helper, \.commands).1(true)
-    spin(until: { done.withValue { $0 } }, timeout: 2)
-    let before = MainActor.assumeIsolated { coordinator.lastError }
-    let echo = launchVoid {
-        await coordinator.handleExternallyAppliedProtectionState(PingWardenPreferences.shared.effectiveMonitoringEnabled)
-    }
-    spin(until: { echo.withValue { $0 } }, timeout: 1)
-    let after = MainActor.assumeIsolated { coordinator.lastError }
-    check(before?.contains("license") == true && after == before, "B4: the echo must not clear the license message")
-    check(connection.helper.states.isEmpty, "B4: the echo must not start an adoption query")
-}
-
-// B4: a real external change is still adopted, without dropping a license message.
+// B4 (B-T1): a real external change is still adopted.
 do {
     MainActor.assumeIsolated { resetAll() }
     let connection = MainActor.assumeIsolated { turnOnThroughCoordinator() }
@@ -417,7 +398,6 @@ do {
 do {
     let action = ProtectionExperiencePolicy.launchIntentAction(
         persistentProtectionEnabled: true,
-        licenseAllowsProtection: true,
         helperRegistered: false
     )
     check(action == .waitForSetup, "B7: a saved intent waits for Finish Setup when the helper is not approved")
@@ -768,30 +748,25 @@ do {
           "107: completed Repair releases reconnect reconciliation ownership")
 }
 
-// #107: repair preserves pauses and cannot enable through a lost license.
-for licensed in [true, false] {
+// #107: repair preserves pauses.
+do {
     MainActor.assumeIsolated { resetAll() }
     PingWardenPreferences.shared.isMonitoringEnabled = true
-    LicenseManager.shared.canEnableProtection = licensed
     let pause = Date().addingTimeInterval(600)
-    if licensed {
-        PingWardenPreferences.shared.protectionPauseUntil = pause
-        MainActor.assumeIsolated { coordinator.harnessSetPause(until: pause) }
-    }
+    PingWardenPreferences.shared.protectionPauseUntil = pause
+    MainActor.assumeIsolated { coordinator.harnessSetPause(until: pause) }
     FakeHelper.autoReplyVersion = "fixture-helper"
     let result = launchRepair()
     spin(until: { result.withValue { $0 } != nil }, timeout: 2)
     check(result.withValue { $0 }?.title == RepairResultCopy.successTitle,
-          "107: repair of a responding helper completes while paused or unlicensed")
+          "107: repair of a responding helper completes while paused")
     check(NSXPCConnection.instances.allSatisfy { $0.helper.commands.isEmpty } && !monitor.isMonitoringActive,
-          "107: paused or unlicensed repair never sends enable")
+          "107: paused repair never sends enable")
     check(PingWardenPreferences.shared.isMonitoringEnabled,
-          "107: paused or unlicensed repair preserves saved ongoing intent")
-    if licensed {
-        check(MainActor.assumeIsolated { coordinator.pauseUntil } == pause
-              && PingWardenPreferences.shared.protectionPauseUntil == pause,
-              "107: repair preserves the active and persisted pause")
-    }
+          "107: paused repair preserves saved ongoing intent")
+    check(MainActor.assumeIsolated { coordinator.pauseUntil } == pause
+          && PingWardenPreferences.shared.protectionPauseUntil == pause,
+          "107: repair preserves the active and persisted pause")
 }
 
 // #107: temporary session demand survives Repair without becoming saved intent.
@@ -868,62 +843,49 @@ for desiredState in [false, true] {
           "107: newer held \(desiredState ? "On" : "Off") remains authoritative")
 }
 
-// #107: pending license revocation and pause own their stop before it replies.
-for change in ["license", "pause"] {
+// #107: a pending pause owns its stop before it replies.
+do {
     MainActor.assumeIsolated { resetAll() }
     monitor.harnessHeldProbeReplies()
     PingWardenPreferences.shared.isMonitoringEnabled = true
     let repaired = launchRepair()
     let connection = awaitConnection()
     awaitVersionRequests(on: connection)
-    if change == "license" { LicenseManager.shared.canEnableProtection = false }
-    let changed = launchVoid {
-        if change == "license" { await coordinator.handleLicenseReverification() }
-        else { await coordinator.pauseForTenMinutes() }
-    }
+    let changed = launchVoid { await coordinator.pauseForTenMinutes() }
     awaitCommands(on: connection)
     connection.helper.versions.forEach { $0("fixture-helper") }
     connection.helper.versions.removeAll()
     spin(until: { repaired.withValue { $0 } != nil }, timeout: 2)
     check(connection.helper.commands.map(\.0) == [true]
           && repaired.withValue { $0 }?.title == "Protection Change In Progress",
-          "107: Repair does not supersede the pending \(change) stop")
+          "107: Repair does not supersede the pending pause stop")
     take(connection.helper, \.commands).1(true)
     spin(until: { changed.withValue { $0 } }, timeout: 2)
-    check(!monitor.isMonitoringActive
-          && PingWardenPreferences.shared.isMonitoringEnabled == (change == "pause"),
-          "107: pending \(change) persists its intended outcome after Repair")
-    if change == "license" {
-        check(MainActor.assumeIsolated { coordinator.lastError } == LicenseCopy.revoked,
-              "107: Repair does not suppress license revocation feedback")
-    }
+    check(!monitor.isMonitoringActive && PingWardenPreferences.shared.isMonitoringEnabled,
+          "107: pending pause persists its intended outcome after Repair")
 }
 
-// #107: license loss or a new pause during the probe prevents a later enable.
-for change in ["license", "pause"] {
+// #107: a new pause during the probe prevents a later enable.
+do {
     MainActor.assumeIsolated { resetAll() }
     monitor.harnessHeldProbeReplies()
     PingWardenPreferences.shared.isMonitoringEnabled = true
     let repaired = launchRepair()
     let connection = awaitConnection()
     awaitVersionRequests(on: connection)
-    if change == "license" {
-        LicenseManager.shared.canEnableProtection = false
-    } else {
-        let paused = launchVoid { await coordinator.pauseForTenMinutes() }
-        awaitCommands(on: connection)
-        check(connection.helper.commands.map(\.0) == [true], "107: new pause sends only a stop during Repair")
-        take(connection.helper, \.commands).1(true)
-        spin(until: { paused.withValue { $0 } }, timeout: 2)
-    }
+    let paused = launchVoid { await coordinator.pauseForTenMinutes() }
+    awaitCommands(on: connection)
+    check(connection.helper.commands.map(\.0) == [true], "107: new pause sends only a stop during Repair")
+    take(connection.helper, \.commands).1(true)
+    spin(until: { paused.withValue { $0 } }, timeout: 2)
     connection.helper.versions.forEach { $0("fixture-helper") }
     connection.helper.versions.removeAll()
     spin(until: { repaired.withValue { $0 } != nil }, timeout: 2)
     check(repaired.withValue { $0 }?.title == RepairResultCopy.successTitle
           && !monitor.isMonitoringActive && connection.helper.commands.isEmpty,
-          "107: newer \(change) wins during repair reconciliation")
+          "107: newer pause wins during repair reconciliation")
     check(PingWardenPreferences.shared.isMonitoringEnabled,
-          "107: \(change) repair reconciliation does not rewrite saved intent")
+          "107: pause repair reconciliation does not rewrite saved intent")
 }
 
 // #107: termination while validation waits cannot later restore or claim success.
@@ -1132,91 +1094,6 @@ do {
     MainActor.assumeIsolated { coordinator.controlRefreshHandler = nil }
 }
 
-func launchLicenseFollowUp() -> LockedValue<LicenseActivationProtection?> {
-    let result = LockedValue<LicenseActivationProtection?>(nil)
-    Task { @MainActor in
-        let decision = await coordinator.turnOnProtectionAfterLicenseActivation()
-        result.withValue { $0 = decision }
-    }
-    return result
-}
-
-// L1: an explicitly activated license turns protection on through the
-// toggle's own path, saving the choice; a second activation sends nothing.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    let result = launchLicenseFollowUp()
-    let connection = awaitConnection()
-    awaitCommands(on: connection)
-    connection.helper.versions.forEach { $0("fixture-helper") }
-    connection.helper.versions.removeAll()
-    take(connection.helper, \.commands).1(true)
-    spin(until: { result.withValue { $0 } != nil }, timeout: 2)
-    settle()
-    check(result.withValue { $0 } == .turnOn, "L1: a ready helper turns protection on")
-    check(monitor.isMonitoringActive && PingWardenPreferences.shared.isMonitoringEnabled,
-          "L1: protection is on and saved as the person's choice")
-    let again = launchLicenseFollowUp()
-    spin(until: { again.withValue { $0 } != nil }, timeout: 2)
-    check(again.withValue { $0 } == .alreadyOn && connection.helper.commands.isEmpty,
-          "L1: protection already on sends no second command")
-}
-
-// L2: a pause is kept; protection resumes from the saved choice when it ends.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    PingWardenPreferences.shared.isMonitoringEnabled = true
-    MainActor.assumeIsolated { coordinator.harnessSetPause(until: Date().addingTimeInterval(600)) }
-    let result = launchLicenseFollowUp()
-    spin(until: { result.withValue { $0 } != nil }, timeout: 2)
-    check(result.withValue { $0 } == .pauseActive, "L2: an active pause is reported")
-    check(MainActor.assumeIsolated { coordinator.isPauseActive } && !monitor.isMonitoringActive
-          && monitor.harnessConnection == nil,
-          "L2: the pause continues and no command is sent")
-}
-
-// L3: a running session (manual or Game Mode) is left alone.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    MainActor.assumeIsolated { session.phase = .active; session.activeTrigger = .gameMode }
-    let result = launchLicenseFollowUp()
-    spin(until: { result.withValue { $0 } != nil }, timeout: 2)
-    check(result.withValue { $0 } == .sessionActive
-          && !PingWardenPreferences.shared.isMonitoringEnabled
-          && MainActor.assumeIsolated { session.endings.isEmpty }
-          && monitor.harnessConnection == nil,
-          "L3: a session keeps protection and the saved choice is unchanged")
-}
-
-// L4: without a license nothing is turned on.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    LicenseManager.shared.canEnableProtection = false
-    let result = launchLicenseFollowUp()
-    spin(until: { result.withValue { $0 } != nil }, timeout: 2)
-    check(result.withValue { $0 } == .notLicensed
-          && !PingWardenPreferences.shared.isMonitoringEnabled
-          && monitor.harnessConnection == nil,
-          "L4: unlicensed activation changes nothing")
-}
-
-// L5: a helper that turns out to be silent leaves protection off and
-// offers Repair, the signal the app follows into Repair after a license.
-do {
-    MainActor.assumeIsolated { resetAll() }
-    let result = launchLicenseFollowUp()
-    let connection = awaitConnection()
-    connection.failProxies(code: xpcConnectionInvalid)
-    spin(until: { result.withValue { $0 } != nil }, timeout: 6)
-    // Read at once: the harness's reconnect answers status requests, which
-    // a later settle would count as the helper recovering.
-    let offersRepair = MainActor.assumeIsolated { coordinator.shouldOfferHelperRepair }
-    check(result.withValue { $0 } == .turnOn && !monitor.isMonitoringActive,
-          "L5: protection stays off when the helper does not answer")
-    check(offersRepair, "L5: the silent helper is offered Repair")
-    settle()
-}
-
 // Repair offers (HelperRepairOffer). The handler records what would be shown.
 let offers = LockedValue<[HelperRepairOffer.Problem]>([])
 @MainActor func installOfferRecorder(presents: Bool = true, debounce: TimeInterval = 0.3) {
@@ -1272,13 +1149,6 @@ do {
 
 // O3: nobody who doesn't need protection is asked about the helper.
 do {
-    MainActor.assumeIsolated { resetAll(); installOfferRecorder() }
-    LicenseManager.shared.canEnableProtection = false
-    MainActor.assumeIsolated { coordinator.noteHelperNotResponding() }
-    spin(0.6)
-    MainActor.assumeIsolated { coordinator.retryPendingRepairOffer() }
-    check(offers.withValue { $0 }.isEmpty, "O3: an unlicensed person on the free dashboard is not offered Repair")
-
     MainActor.assumeIsolated { resetAll(); installOfferRecorder() }
     MainActor.assumeIsolated { coordinator.noteHelperNotResponding() }
     spin(0.6)

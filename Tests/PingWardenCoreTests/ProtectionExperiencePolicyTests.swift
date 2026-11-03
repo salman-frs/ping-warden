@@ -5,18 +5,6 @@ import XCTest
 final class ProtectionExperiencePolicyTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 10_000)
 
-    func testExpiredLicenseBlocksEveryReconciliationPhase() {
-        for phase in ProtectionSessionPhase.allCases {
-            var state = makeState(persistentProtectionEnabled: true, sessionPhase: phase)
-            state.licenseAllowsProtection = false
-            XCTAssertFalse(ProtectionExperiencePolicy.shouldEnableProtection(for: state, now: now))
-            state.pauseUntil = now.addingTimeInterval(-1)
-            XCTAssertFalse(ProtectionExperiencePolicy.shouldEnableProtection(for: state, now: now))
-            state.persistentProtectionEnabled = false
-            XCTAssertFalse(ProtectionExperiencePolicy.shouldEnableProtection(for: state, now: now))
-        }
-    }
-
     func testSessionStartingOrActiveRequiresTemporaryProtection() {
         var state = makeState(sessionPhase: .starting, sessionTrigger: .manual)
         XCTAssertTrue(ProtectionExperiencePolicy.shouldEnableProtection(for: state, now: now))
@@ -236,24 +224,21 @@ final class ProtectionExperiencePolicyTests: XCTestCase {
                     for requested in bools {
                         for inFlight in bools {
                             for responding in bools {
-                                for licensed in bools {
-                                    for pause in pauses {
-                                        for phase in ProtectionSessionPhase.allCases {
-                                            let state = ProtectionExperiencePolicy.State(
-                                                helperAvailable: helperAvailable,
-                                                persistentProtectionEnabled: persistent,
-                                                effectiveProtectionEnabled: effective,
-                                                sessionPhase: phase,
-                                                sessionTrigger: phase == .idle ? nil : .manual,
-                                                pauseUntil: pause,
-                                                licenseAllowsProtection: licensed,
-                                                protectionRequested: requested,
-                                                commandInFlight: inFlight,
-                                                helperResponding: responding
-                                            )
-                                            combinations += 1
-                                            assertToggleInvariants(state)
-                                        }
+                                for pause in pauses {
+                                    for phase in ProtectionSessionPhase.allCases {
+                                        let state = ProtectionExperiencePolicy.State(
+                                            helperAvailable: helperAvailable,
+                                            persistentProtectionEnabled: persistent,
+                                            effectiveProtectionEnabled: effective,
+                                            sessionPhase: phase,
+                                            sessionTrigger: phase == .idle ? nil : .manual,
+                                            pauseUntil: pause,
+                                            protectionRequested: requested,
+                                            commandInFlight: inFlight,
+                                            helperResponding: responding
+                                        )
+                                        combinations += 1
+                                        assertToggleInvariants(state)
                                     }
                                 }
                             }
@@ -262,7 +247,7 @@ final class ProtectionExperiencePolicyTests: XCTestCase {
                 }
             }
         }
-        XCTAssertEqual(combinations, 2 * 2 * 2 * 2 * 2 * 2 * 2 * 3 * 4)
+        XCTAssertEqual(combinations, 2 * 2 * 2 * 2 * 2 * 2 * 3 * 4)
     }
 
     private func assertToggleInvariants(
@@ -294,40 +279,18 @@ final class ProtectionExperiencePolicyTests: XCTestCase {
 
     func testLaunchNeverEnablesForAnUnapprovedHelper() {
         XCTAssertEqual(
-            ProtectionExperiencePolicy.launchIntentAction(
-                persistentProtectionEnabled: true, licenseAllowsProtection: true, helperRegistered: false
-            ),
+            ProtectionExperiencePolicy.launchIntentAction(persistentProtectionEnabled: true, helperRegistered: false),
             .waitForSetup
         )
         XCTAssertEqual(
-            ProtectionExperiencePolicy.launchIntentAction(
-                persistentProtectionEnabled: true, licenseAllowsProtection: false, helperRegistered: false
-            ),
-            .clearIntentForLicense
-        )
-        XCTAssertEqual(
-            ProtectionExperiencePolicy.launchIntentAction(
-                persistentProtectionEnabled: true, licenseAllowsProtection: false, helperRegistered: true
-            ),
-            .clearIntentForLicense
-        )
-        XCTAssertEqual(
-            ProtectionExperiencePolicy.launchIntentAction(
-                persistentProtectionEnabled: true, licenseAllowsProtection: true, helperRegistered: true
-            ),
+            ProtectionExperiencePolicy.launchIntentAction(persistentProtectionEnabled: true, helperRegistered: true),
             .none
         )
-        for licensed in [false, true] {
-            for registered in [false, true] {
-                XCTAssertEqual(
-                    ProtectionExperiencePolicy.launchIntentAction(
-                        persistentProtectionEnabled: false,
-                        licenseAllowsProtection: licensed,
-                        helperRegistered: registered
-                    ),
-                    .none
-                )
-            }
+        for registered in [false, true] {
+            XCTAssertEqual(
+                ProtectionExperiencePolicy.launchIntentAction(persistentProtectionEnabled: false, helperRegistered: registered),
+                .none
+            )
         }
     }
 

@@ -17,13 +17,3 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
-
-  # The website build and deploy chain (wrangler, markdown-it, and their
-  # transitive tree) runs in the one CI job that holds the Cloudflare token,
-  # so it needs the same automated advisory coverage as the app.
-  - package-ecosystem: npm
-    directory: /Site
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5

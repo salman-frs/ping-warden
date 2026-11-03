@@ -152,7 +152,7 @@ final class DiagnosticsLocationTests: XCTestCase {
 
     func testLaunchdSummaryKeepsOnlyWhitelistedTopLevelKeys() {
         let output = """
-        system/com.amesvt.pingwarden.helper = {
+        system/com.salmanfrs.pingwarden.helper = {
         \tactive count = 0
         \tpath = (submitted by smd.370)
         \tstate = not running
@@ -178,7 +178,7 @@ final class DiagnosticsLocationTests: XCTestCase {
     func testLaunchdSummaryReportsAMissingJob() {
         XCTAssertEqual(
             DiagnosticsPrivacy.launchdJobSummary(
-                launchctlOutput: "Could not find service \"com.amesvt.pingwarden.helper\" in domain for system",
+                launchctlOutput: "Could not find service \"com.salmanfrs.pingwarden.helper\" in domain for system",
                 exitStatus: 113
             ),
             "not_loaded (launchctl exit 113)"

@@ -23,9 +23,6 @@
 // helperVersionString(). Kept current so the fallback is never stale.
 #define HELPER_VERSION @"4.4.3"
 
-// Team ID for code signing validation
-#define TEAM_ID @"PV3W52NDZ3"
-
 // Grace period before exiting when all connections close. Long enough that an
 // app crash + SMAppService relaunch can re-establish XPC without the helper
 // tearing down monitoring and re-enabling AWDL mid-session.
@@ -54,8 +51,8 @@ static NSXPCListener *gListener = nil;
 /// CFBundleShortVersionString — the helper embeds its Info.plist via
 /// CREATE_INFOPLIST_SECTION_IN_BINARY — and fall back to the compiled-in
 /// constant only if the embedded value is somehow unavailable. Versions are
-/// bumped by hand in lockstep with the app; scripts/release_validation.sh
-/// fails the release if any copy drifts. This keeps the version reported over
+/// bumped by hand in lockstep with the app; the CI version check
+/// fails if any copy drifts. This keeps the version reported over
 /// XPC (health check, diagnostics export) honest instead of frozen at whatever
 /// the macro last said.
 static NSString *helperVersionString(void) {
@@ -83,10 +80,39 @@ static uid_t consoleUserID(void) {
 
 #pragma mark - Code Signing Helpers
 
-/// Check if this binary is properly code signed (not ad-hoc). Every
-/// failure is logged with its status, because a helper that refuses to serve
-/// otherwise looks exactly like one launchd never started.
-static BOOL isProperlyCodeSigned(void) {
+/// The Team ID this helper was signed with, or nil for an ad-hoc or
+/// unsigned build. Clients must carry the same Team ID, so the helper and
+/// the app it ships in never need a hardcoded developer identity.
+static NSString *signingTeamIdentifier(void) {
+    SecCodeRef code = NULL;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &code) != errSecSuccess || !code) {
+        return nil;
+    }
+    SecStaticCodeRef staticCode = NULL;
+    OSStatus status = SecCodeCopyStaticCode(code, kSecCSDefaultFlags, &staticCode);
+    CFRelease(code);
+    if (status != errSecSuccess || !staticCode) {
+        return nil;
+    }
+    CFDictionaryRef info = NULL;
+    status = SecCodeCopySigningInformation(staticCode, kSecCSSigningInformation, &info);
+    CFRelease(staticCode);
+    if (status != errSecSuccess || !info) {
+        return nil;
+    }
+    NSDictionary *signingInfo = CFBridgingRelease(info);
+    NSString *team = signingInfo[(__bridge NSString *)kSecCodeInfoTeamIdentifier];
+    return team.length > 0 ? team : nil;
+}
+
+/// Check that this binary carries a valid Apple-issued signature for `team`.
+/// Every failure is logged with its status, because a helper that refuses to
+/// serve otherwise looks exactly like one launchd never started.
+static BOOL isProperlyCodeSigned(NSString *team) {
+    if (!team) {
+        os_log_fault(LOG, "Helper has no Team ID: it is ad-hoc signed or unsigned");
+        return NO;
+    }
     SecCodeRef code = NULL;
     OSStatus status = SecCodeCopySelf(kSecCSDefaultFlags, &code);
     if (status != errSecSuccess || !code) {
@@ -94,10 +120,9 @@ static BOOL isProperlyCodeSigned(void) {
         return NO;
     }
 
-    // Check for valid signature (not ad-hoc)
     SecRequirementRef requirement = NULL;
     NSString *reqString = [NSString stringWithFormat:
-        @"anchor apple generic and certificate leaf[subject.OU] = \"%@\"", TEAM_ID];
+        @"anchor apple generic and certificate leaf[subject.OU] = \"%@\"", team];
     status = SecRequirementCreateWithString((__bridge CFStringRef)reqString,
                                             kSecCSDefaultFlags, &requirement);
     if (status != errSecSuccess || !requirement) {
@@ -422,17 +447,18 @@ static void runRefusingService(NSXPCListener *listener, NSString *reason) {
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
-        BOOL isSigned = isProperlyCodeSigned();
+        NSString *team = signingTeamIdentifier();
+        BOOL isSigned = isProperlyCodeSigned(team);
         os_log(LOG, "PingWardenHelper v%{public}@ starting (%{public}s)",
                helperVersionString(), isSigned ? "signed" : "unsigned/ad-hoc");
 
         // Initialize thread-safe queue for connection counting
-        connectionCountQueue = dispatch_queue_create("com.amesvt.pingwarden.helper.connectionCount",
+        connectionCountQueue = dispatch_queue_create("com.salmanfrs.pingwarden.helper.connectionCount",
                                                      DISPATCH_QUEUE_SERIAL);
 
         // Create XPC listener for our Mach service
         // The service name must match the MachServices key in the plist
-        NSXPCListener *listener = [[NSXPCListener alloc] initWithMachServiceName:@"com.amesvt.pingwarden.xpc"];
+        NSXPCListener *listener = [[NSXPCListener alloc] initWithMachServiceName:@"com.salmanfrs.pingwarden.xpc"];
 
         if (!listener) {
             os_log_error(LOG, "Failed to create XPC listener - Mach service may not be registered");
@@ -451,8 +477,8 @@ int main(int argc, const char * argv[]) {
         // shouldAcceptNewConnection narrows callers further.
         NSString *requirement = [NSString stringWithFormat:
             @"anchor apple generic "
-            @"and (identifier \"com.amesvt.pingwarden\" or identifier \"com.amesvt.pingwarden.widget\") "
-            @"and certificate leaf[subject.OU] = \"%@\"", TEAM_ID];
+            @"and (identifier \"com.salmanfrs.pingwarden\" or identifier \"com.salmanfrs.pingwarden.widget\") "
+            @"and certificate leaf[subject.OU] = \"%@\"", team];
         if (@available(macOS 13.0, *)) {
             listener.connectionCodeSigningRequirement = requirement;
             os_log(LOG, "Enforcing code signing requirement for XPC connections (app and widget)");
@@ -485,7 +511,7 @@ int main(int argc, const char * argv[]) {
         listener.delegate = service;
         [listener activate];
 
-        os_log(LOG, "XPC listener activated on com.amesvt.pingwarden.xpc");
+        os_log(LOG, "XPC listener activated on com.salmanfrs.pingwarden.xpc");
 
         // A peer the signing requirement rejects never reaches the delegate,
         // so no connection would ever schedule the idle exit and the helper

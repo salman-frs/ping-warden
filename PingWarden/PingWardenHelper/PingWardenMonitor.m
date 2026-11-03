@@ -31,7 +31,7 @@ os_log_t PingWardenHelperLog(void) {
     static os_log_t log;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        log = os_log_create("com.amesvt.pingwarden", "helper");
+        log = os_log_create("com.salmanfrs.pingwarden", "helper");
     });
     return log;
 }
@@ -59,7 +59,7 @@ _Static_assert(sizeof("awdl0") <= IFNAMSIZ, "TARGETIFNAM must fit in IFNAMSIZ");
 
 // Present while this helper holds awdl0 down. /var/run is cleared at boot,
 // so a marker found at startup means an earlier helper died mid-session.
-#define DEFAULT_LOWERED_MARKER_PATH @"/var/run/com.amesvt.pingwarden.helper.awdl-lowered"
+#define DEFAULT_LOWERED_MARKER_PATH @"/var/run/com.salmanfrs.pingwarden.helper.awdl-lowered"
 
 // Log the first interventions at the default level, then only every
 // hundredth, so a long fight with AirDrop does not flood the persisted log.

@@ -175,9 +175,6 @@ func settle() {
     p.effectiveMonitoringEnabled = false
     p.lastKnownState = "unknown"
     p.protectionPauseUntil = nil
-    LicenseManager.shared.canEnableProtection = true
-    LicenseManager.shared.grandfatherWindowExpired = false
-    LicenseManager.launchGateAllowsProtection = true
     SMAppService.fixtureStatus = .enabled
     SMAppService.fixtureAllowsRegistration = false
     SMAppService.statusAfterRegister = .enabled
@@ -266,7 +263,7 @@ func setFixtureHelperBundle(installed: Bool) {
         attributes: [.posixPermissions: 0o755]
     )
     fileManager.createFile(
-        atPath: contents.appendingPathComponent("Library/LaunchDaemons/com.amesvt.pingwarden.helper.plist").path,
+        atPath: contents.appendingPathComponent("Library/LaunchDaemons/com.salmanfrs.pingwarden.helper.plist").path,
         contents: Data()
     )
 }

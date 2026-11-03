@@ -17,9 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       native: ${{ steps.scope.outputs.native }}
-      site: ${{ steps.scope.outputs.site }}
       shell: ${{ steps.scope.outputs.shell }}
-      feeds: ${{ steps.scope.outputs.feeds }}
     steps:
       - name: Checkout change history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -31,35 +29,6 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 .github/scripts/ci-scope.py
-
-  analyze-site:
-    needs: scope
-    if: needs.scope.outputs.site == 'true'
-    name: Analyze website worker and release tooling
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
-        with:
-          # worker.mjs serves pingwarden.app in production and build.mjs
-          # writes its CSP; the Python files are the release tooling.
-          languages: javascript-typescript,python
-          queries: security-extended
-          build-mode: none
-          config: |
-            paths:
-              - Site
-              - scripts
-            paths-ignore:
-              - Site/node_modules
-              - Site/public
-
-      - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
 
   analyze:
     needs: scope

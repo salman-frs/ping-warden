@@ -52,8 +52,8 @@ struct QuarantineHelper {
     /// Show helpful dialog if app is quarantined
     static func showQuarantineHelpIfNeeded() {
         // Run the checks off the main thread: SecStaticCodeCheckValidity
-        // hashes the whole bundle (including Sparkle.framework) on the
-        // quarantined first-run path, which would stall launch for seconds.
+        // hashes the whole bundle on the quarantined first-run path, which
+        // would stall launch for seconds.
         DispatchQueue.global(qos: .utility).async {
             // Only show if quarantined and not properly signed (most users)
             guard isQuarantined() && !isProperlyCodeSigned() else {
@@ -75,14 +75,14 @@ struct QuarantineHelper {
                 osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
             )
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Open Releases")
+            alert.addButton(withTitle: "Open Privacy & Security")
             alert.addButton(withTitle: "Cancel")
             
             let response = alert.runModal()
             
             switch response {
             case .alertFirstButtonReturn:
-                if let url = URL(string: "https://github.com/oliverames/ping-warden/releases/latest") {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security") {
                     NSWorkspace.shared.open(url)
                 }
             default:

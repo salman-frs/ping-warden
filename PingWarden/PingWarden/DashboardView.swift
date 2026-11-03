@@ -371,30 +371,14 @@ struct ProtectedSessionCard: View {
         let state = protectionExperience.policyState
 
         VStack(alignment: .leading, spacing: 14) {
-            if coordinator.isActive || state.licenseAllowsProtection {
-                sessionControls(state)
+            sessionControls(state)
 
-                if coordinator.isActive {
-                    activeSessionBody
-                } else {
-                    savedSessions
-                }
+            if coordinator.isActive {
+                activeSessionBody
             } else {
-                licenseOffer
-
-                // A license is required to start a protected session, not to
-                // read, share or remove recaps the user already owns.
-                if coordinator.latestSummary != nil || !coordinator.history.isEmpty {
-                    DisclosureGroup("Previous Latency Sessions") {
-                        savedSessions
-                            .padding(.top, 8)
-                    }
-                    .font(.caption)
-                }
+                savedSessions
             }
 
-            // History actions remain available without a license, so their
-            // errors must also remain visible outside the entitlement branch.
             if let error = coordinator.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -415,47 +399,6 @@ struct ProtectedSessionCard: View {
         } message: {
             Text("This permanently removes every saved latency session recap from this Mac.")
         }
-    }
-
-    private var licenseOffer: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Unlock Ping Protection", systemImage: "shield.lefthalf.filled")
-                .font(.headline)
-                .dashboardCardHeader()
-            Text("Help reduce Wi-Fi latency spikes caused by nearby Apple-device activity. Includes protected sessions with a recap of each game or call.")
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Protection temporarily pauses AirDrop and related nearby-device features.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { licenseActions }
-                VStack(alignment: .leading, spacing: 8) { licenseActions }
-            }
-
-            Text("One-time purchase. Basic latency monitoring stays free.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private var licenseActions: some View {
-        Button("Buy a License · $15") {
-            NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "dashboard-unlock"))
-        }
-        .buttonStyle(.borderedProminent)
-
-        Button("Enter License") {
-            NotificationCenter.default.post(
-                name: .pingWardenOpenSettingsSection,
-                object: nil,
-                userInfo: ["section": "License"]
-            )
-        }
-        .buttonStyle(.bordered)
-        .accessibilityHint("Opens License settings to activate or verify an existing license")
     }
 
     private func sessionControls(_ state: ProtectionExperiencePolicy.State) -> some View {
@@ -1483,18 +1426,9 @@ struct InterventionsCard: View {
             }
 
             if let error = protectionExperience.lastError {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                    if error.localizedCaseInsensitiveContains("license") {
-                        Button("Buy a License · $15") {
-                            NSWorkspace.shared.open(LicenseManager.purchaseURL(from: "dashboard-protection"))
-                        }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                    }
-                }
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
 
             if helperIsSilent || repairError != nil {

@@ -2,8 +2,6 @@
 
 This document is the detailed technical and operational guide for Ping Warden.
 
-Read it on the [Ping Warden website](https://pingwarden.app/docs/technical). The [documentation hub](https://pingwarden.app/docs/) includes setup, pricing, privacy, troubleshooting, and release notes.
-
 For quick setup, see [Quick Start](QUICKSTART.md). For issue recovery, see [Troubleshooting](TROUBLESHOOTING.md).
 
 ## 1. Overview
@@ -38,13 +36,13 @@ Additional benefits:
 Ping Warden uses a split architecture:
 
 - Main app (Swift/SwiftUI + AppKit bridge):
-  - UI, settings, dashboard, diagnostics, automation, Sparkle updates.
+  - UI, settings, dashboard, diagnostics, automation.
 - Helper daemon (Objective-C):
   - Privileged AWDL control and low-level monitoring.
 
 Communication boundary:
 
-- XPC service: `com.amesvt.pingwarden.xpc`
+- XPC service: `com.salmanfrs.pingwarden.xpc`
 - Protocol: `PingWardenHelperProtocol` (in `PingWarden/Common/HelperProtocol.h`)
 
 Registration model:
@@ -72,7 +70,6 @@ Responsibilities:
 - Effective runtime state tracking (`effectiveMonitoringEnabled`).
 - Dashboard data collection and charting.
 - Latency Session lifecycle and local recap history.
-- Sparkle update checks and update menu entries.
 
 ### 4.2 Helper Daemon
 
@@ -81,7 +78,7 @@ Important files:
 - `PingWarden/PingWardenHelper/main.m`
 - `PingWarden/PingWardenHelper/PingWardenMonitor.h`
 - `PingWarden/PingWardenHelper/PingWardenMonitor.m`
-- `PingWarden/PingWardenHelper/com.amesvt.pingwarden.helper.plist`
+- `PingWarden/PingWardenHelper/com.salmanfrs.pingwarden.helper.plist`
 
 Responsibilities:
 
@@ -141,7 +138,6 @@ Settings sections:
 
 - Dashboard
 - General
-- License
 - Targets
 - Automation
 - Advanced
@@ -153,7 +149,7 @@ Provides real-time latency visibility and tuning controls.
 Cards include:
 
 - Latency Session:
-  - Start and end a measured game or call. Starting a session enables Ping Protection and requires a license or an active transition. Reading past session recaps remains free.
+  - Start and end a measured game or call. Starting a session enables Ping Protection.
   - Review duration, median, p95, jitter, Probe Failures, and interventions.
   - Share a privacy-scrubbed text recap.
 
@@ -204,15 +200,7 @@ Tools:
 - Repair the helper connection without changing the protection preference.
 - Prepare for removal by turning off protection, unregistering services, clearing local data, revealing the app, and quitting.
 
-### 8.5 License
-
-- View status (Licensed, transition period with days remaining, or Unlicensed).
-- Enter a license key and verify with Gumroad, or open the Gumroad product page.
-- The transition applies when protection was enabled with an approved helper at the first launch of version 4. It lasts 90 days from that launch, and updates preserve the deadline. For donations before version 4, the pane explains how to request a license at [oliver@ames.consulting](mailto:oliver@ames.consulting).
-- Activation and refresh send the license key and product ID to Gumroad over HTTPS. The key stays in the macOS Keychain between checks.
-- Eligible users see the transition notice once, then reminders when 30 days and 7 days remain, each showing the days left. The presentation date persists across restarts. Reminders defer during detected games and latency sessions, stop after activation or expiry, never extend the original deadline, and a reminder missed while the app was closed does not stack with the next one.
-
-### 8.6 Targets
+### 8.5 Targets
 
 - Ping target selection, including discovered GeForce NOW zones and the network gateway.
 - Find Fastest Target.
@@ -226,38 +214,10 @@ Menu bar:
 - One primary Ping Protection action, plus a contextual 10-minute pause.
 - Latency Sessions stay in the dashboard so they are not confused with the persistent protection control.
 - Optional live metrics in dropdown.
-- Settings, About, Buy a License (while unlicensed), and update actions.
-- Help and Documentation opens `https://pingwarden.app/docs/`. The Help menu includes troubleshooting and the website. About includes both website and documentation links.
+- Settings and About.
+- Help and Documentation opens the project repository. The Help menu and About also link to troubleshooting.
 
-App menu (frontmost app state):
-
-- `Check for Updates...` is injected/ensured when app is active with regular activation policy.
-- This complements the status item update command.
-
-## 10. Sparkle Update System
-
-Update stack:
-
-- Framework: Sparkle 2. The exact version is pinned in the Xcode project's `Package.resolved`.
-- Stable feed: `https://oliverames.github.io/ping-warden/appcast.xml`.
-- Beta feed: `https://oliverames.github.io/ping-warden/appcast-beta.xml`, selected in **Settings → Advanced → Updates**. Stable releases also reach this feed.
-- Signature model: EdDSA (`SUPublicEDKey` in app plist).
-- Signed feeds and pre-extraction archive verification are required.
-
-Operational details:
-
-- App clears stale user-default feed overrides at startup.
-- Updater delegate provides canonical feed URL.
-- Manual update checks available from both menu entry points.
-- The paid-upgrade boundary at build 40000 requires users of free versions to review the upgrade before installation.
-
-Release wiring:
-
-- `PingWarden/PingWarden/release.sh` builds a fresh archive, signs and notarizes the app and DMG, and publishes signed update feeds.
-- Stable releases replace the Gumroad app download while preserving the license-key block and other buyer content.
-- GitHub release artifacts and appcast metadata must remain synchronized.
-
-## 11. Security Model
+## 10. Security Model
 
 Security controls include:
 
@@ -269,7 +229,7 @@ Security controls include:
 - Bounded error handling and controlled shutdown paths.
 - Developer ID signing, Hardened Runtime, notarization, and stapling are release gates.
 
-## 12. Diagnostics and Health Checks
+## 11. Diagnostics and Health Checks
 
 Built-in diagnostics surface:
 
@@ -286,7 +246,7 @@ Export diagnostics:
 - Redacts custom ping targets to a category before writing.
 - Shows the contents for review and never uploads the file automatically.
 
-## 13. Performance Characteristics
+## 12. Performance Characteristics
 
 Design choices for low overhead:
 
@@ -298,7 +258,7 @@ Design choices for low overhead:
 - Narrow command surface over XPC.
 - Dashboard sampling rate configurable by user.
 
-## 14. Build and Development
+## 13. Build and Development
 
 Prerequisites:
 
@@ -324,33 +284,11 @@ Key project areas:
 - Helper target: privileged monitoring and control.
 - Widget target: optional control-center/menu integration path.
 
-## 15. Release and Distribution
+## 14. Release and Distribution
 
-Run the release command from a clean commit that is already pushed:
+This fork has no release pipeline and no in-app updates. Update by pulling the source and building again.
 
-```bash
-cd PingWarden/PingWarden
-bash release.sh X.Y.Z ../../RELEASE_NOTES.md
-```
-
-Before it builds anything, the command rebuilds the website's generated pages
-under `Site/public` from `RELEASE_NOTES.md`, the READMEs, and the guides, and
-stops if the committed copies are out of step. The website deploys only when
-those pages match their sources, so a release that edits the notes must commit
-the rebuilt `Site/public/docs/releases.html` alongside the version bump. The
-release then creates a fresh unsigned archive and dSYMs, validates and signs the
-app, helper, and widget, notarizes and staples the app and DMG, mount-tests the
-DMG, signs the Sparkle archive and appcast, publishes the GitHub release and
-Sentry dSYMs, updates `gh-pages`, and attaches the DMG to the Gumroad product.
-
-Release files: `PingWarden/PingWarden/release.sh`, `PingWarden/PingWarden/notarize.sh`, and `appcast.xml`.
-
-Important:
-
-- Appcast latest entry must match the intended newest version.
-- Feed URL in shipped app must resolve to current appcast location.
-
-## 16. Limitations and Tradeoffs
+## 15. Limitations and Tradeoffs
 
 Behavioral tradeoff while blocking AWDL:
 
@@ -362,7 +300,7 @@ Other practical limits:
 - Game mode detection depends on permissions and app/game behavior.
 - Network conditions and endpoint choice still influence baseline latency.
 
-## 17. Operational Best Practices
+## 16. Operational Best Practices
 
 Recommended usage:
 
@@ -371,20 +309,18 @@ Recommended usage:
 - Keep update interval moderate unless actively investigating jitter.
 - Use diagnostics export before opening support issues.
 
-## 18. Related Documentation
+## 17. Related Documentation
 
 - [Quick Start](QUICKSTART.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Repository Root README](../README.md)
 - [Release Notes](../RELEASE_NOTES.md)
 
-## 19. Credits
+## 18. Credits
 
 - [jamestut/awdlkiller](https://github.com/jamestut/awdlkiller)
 - [james-howard/AWDLControl](https://github.com/james-howard/AWDLControl), SMAppService and XPC architecture inspiration
 
-## 20. License and Pricing
+## 19. License
 
-Source code: MIT, Copyright (c) 2025-2026 Oliver Ames. Building from source under MIT does not require a license. See the repository [LICENSE](../LICENSE).
-
-Prebuilt app: free to download, with Ping Protection gated behind a one-time purchased key. Section 8.5 describes the License pane and the verification behavior the app implements. The [root README](../README.md#pricing) is the canonical statement of the price, the existing-user transition, and the donor path.
+MIT, Copyright (c) 2025-2026 Oliver Ames. See the repository [LICENSE](../LICENSE).
