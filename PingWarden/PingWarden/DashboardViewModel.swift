@@ -291,8 +291,8 @@ class DashboardViewModel: ObservableObject {
         isStarted = true
         self.includesTelemetry = includesTelemetry
 
-        // Resolve the local gateway off the main thread; the cache runs
-        // /usr/sbin/route only after the network path changes.
+        // Resolve the local gateway off the main thread; the cache asks
+        // configd again only after the network path changes.
         Task.detached(priority: .utility) {
             let gateway = GatewayAddressCache.shared.address()
             guard let gateway else { return }
@@ -514,7 +514,7 @@ class DashboardViewModel: ObservableObject {
     /// when a freshly resolved gateway is in hand; otherwise the gateway
     /// cached in the existing targets is reused — do NOT call
     /// NetworkGatewayResolver here since this runs on @MainActor and the
-    /// resolver spawns a blocking Process.
+    /// resolver blocks on a configd query.
     private func rebuildTargets(localGateway: String? = nil) {
         let gatewayHost = localGateway ?? targets.first(where: { $0.source == .local })?.host
         let baseTargets = Self.baseTargets(localGateway: gatewayHost)
@@ -981,8 +981,7 @@ final class PingChartModel: ObservableObject {
 
 // MARK: - Gateway cache
 
-/// The default gateway, cached until the network path changes. Each
-/// Dashboard or Targets appearance used to launch /usr/sbin/route.
+/// The default gateway, cached until the network path changes.
 final class GatewayAddressCache: @unchecked Sendable {
     static let shared = GatewayAddressCache()
 
@@ -1001,7 +1000,7 @@ final class GatewayAddressCache: @unchecked Sendable {
         pathMonitor.start(queue: DispatchQueue(label: "com.salmanfrs.pingwarden.gatewaycache", qos: .utility))
     }
 
-    /// Blocks while `route` runs on a cache miss, so call it off the main
+    /// Blocks on a configd query on a cache miss, so call it off the main
     /// thread.
     func address() -> String? {
         lock.lock()
