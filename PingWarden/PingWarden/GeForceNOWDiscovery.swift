@@ -10,17 +10,17 @@ import Foundation
 
 enum GeForceNOWDiscovery {
     private static let endpoint = URL(string: "https://status.geforcenow.com/api/v2/components.json")
-    private static let zoneCodePattern = #"\bNP[A]?-[A-Z0-9-]+\b"#
 
-    /// Zone codes from the last successful fetch, kept in memory for the
+    /// Zones from the last successful fetch, kept in memory for the
     /// process and in defaults across launches. `DashboardViewModel` is a
     /// `@StateObject` that is rebuilt every time the Dashboard or Targets
     /// pane appears, so without this a saved GeForce NOW target could not
     /// be matched until a fresh network round-trip finished, and the shared
     /// probe spent those seconds measuring a fallback target instead.
     private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var memoryCache: (codes: [String], fetchedAt: Date)?
+    nonisolated(unsafe) private static var memoryCache: (zones: [GeForceNOWZone], fetchedAt: Date)?
     private static let cachedCodesKey = "DashboardGFNZoneCodes"
+    private static let cachedRegionsKey = "DashboardGFNZoneRegions"
     private static let cachedAtKey = "DashboardGFNZoneCodesFetchedAt"
     private static let cacheRetention: TimeInterval = 30 * 24 * 3600
 
@@ -32,24 +32,32 @@ enum GeForceNOWDiscovery {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         if let memoryCache {
-            return (makeTargets(fromCodes: memoryCache.codes), memoryCache.fetchedAt)
+            return (makeTargets(from: memoryCache.zones), memoryCache.fetchedAt)
         }
         guard let codes = userDefaults.stringArray(forKey: cachedCodesKey), !codes.isEmpty else {
             return nil
         }
         let fetchedAt = Date(timeIntervalSince1970: userDefaults.double(forKey: cachedAtKey))
         guard Date().timeIntervalSince(fetchedAt) < cacheRetention else { return nil }
-        let validCodes = codes.filter { !extractZoneCodes(from: [$0]).isEmpty }
-        guard !validCodes.isEmpty else { return nil }
-        memoryCache = (validCodes, fetchedAt)
-        return (makeTargets(fromCodes: validCodes), fetchedAt)
+        // Older caches hold codes without regions.
+        let regions = userDefaults.dictionary(forKey: cachedRegionsKey) as? [String: String] ?? [:]
+        let zones = codes
+            .filter { GeForceNOWZone.zoneCodes(in: $0) == [$0] }
+            .map { GeForceNOWZone(code: $0, region: regions[$0]) }
+        guard !zones.isEmpty else { return nil }
+        memoryCache = (zones, fetchedAt)
+        return (makeTargets(from: zones), fetchedAt)
     }
 
-    private static func storeCache(codes: [String], fetchedAt: Date, userDefaults: UserDefaults = .standard) {
+    private static func storeCache(zones: [GeForceNOWZone], fetchedAt: Date, userDefaults: UserDefaults = .standard) {
         cacheLock.lock()
-        memoryCache = (codes, fetchedAt)
+        memoryCache = (zones, fetchedAt)
         cacheLock.unlock()
-        userDefaults.set(codes, forKey: cachedCodesKey)
+        userDefaults.set(zones.map(\.code), forKey: cachedCodesKey)
+        let regionsByCode = zones.reduce(into: [String: String]()) { regions, zone in
+            regions[zone.code] = zone.region
+        }
+        userDefaults.set(regionsByCode, forKey: cachedRegionsKey)
         userDefaults.set(fetchedAt.timeIntervalSince1970, forKey: cachedAtKey)
     }
 
@@ -59,26 +67,20 @@ enum GeForceNOWDiscovery {
         memoryCache = nil
         cacheLock.unlock()
         userDefaults.removeObject(forKey: cachedCodesKey)
+        userDefaults.removeObject(forKey: cachedRegionsKey)
         userDefaults.removeObject(forKey: cachedAtKey)
     }
 
-    private static func makeTargets(fromCodes codes: [String]) -> [PingTarget] {
-        codes.sorted().map { code in
-            PingTarget(
-                displayName: "GeForce NOW (\(code))",
-                host: "\(code.lowercased()).cloudmatchbeta.nvidiagrid.net",
-                port: 443,
-                source: .geforceNow
-            )
-        }
+    static func target(for zone: GeForceNOWZone) -> PingTarget {
+        PingTarget(displayName: zone.displayName, host: zone.host, port: 443, source: .geforceNow)
+    }
+
+    private static func makeTargets(from zones: [GeForceNOWZone]) -> [PingTarget] {
+        zones.sorted { $0.code < $1.code }.map(target(for:))
     }
 
     private struct ComponentsResponse: Decodable {
-        let components: [Component]
-    }
-
-    private struct Component: Decodable {
-        let name: String
+        let components: [GeForceNOWZone.StatusComponent]
     }
 
     /// Returns the discovered zone targets, or `nil` when the fetch failed
@@ -100,36 +102,15 @@ enum GeForceNOWDiscovery {
             }
 
             let payload = try JSONDecoder().decode(ComponentsResponse.self, from: data)
-            let codes = Array(extractZoneCodes(from: payload.components.map(\.name))).sorted()
+            let zones = GeForceNOWZone.zones(fromStatusComponents: payload.components)
             // An empty list is a successful answer that says "no zones";
             // keep the previous cache rather than persisting nothing.
-            if !codes.isEmpty {
-                storeCache(codes: codes, fetchedAt: Date())
+            if !zones.isEmpty {
+                storeCache(zones: zones, fetchedAt: Date())
             }
-            return makeTargets(fromCodes: codes)
+            return makeTargets(from: zones)
         } catch {
             return nil
         }
-    }
-
-    private static func extractZoneCodes(from componentNames: [String]) -> Set<String> {
-        guard let regex = try? NSRegularExpression(pattern: zoneCodePattern) else {
-            return []
-        }
-
-        var codes = Set<String>()
-
-        for name in componentNames {
-            let uppercasedName = name.uppercased()
-            let nameNSString = uppercasedName as NSString
-            let range = NSRange(location: 0, length: nameNSString.length)
-            let matches = regex.matches(in: uppercasedName, range: range)
-
-            for match in matches {
-                codes.insert(nameNSString.substring(with: match.range))
-            }
-        }
-
-        return codes
     }
 }
