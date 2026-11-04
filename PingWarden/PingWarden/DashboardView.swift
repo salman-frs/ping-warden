@@ -104,7 +104,7 @@ private enum DashboardLayout {
 /// The dashboard's one set of status colors: latency bands, protection
 /// state, intervention attempts and timeline events all draw from it, so
 /// a green or orange means the same shade everywhere on the page.
-private enum LatencyPalette {
+enum LatencyPalette {
     // Light variants are darker so they hit WCAG AA (>=4.5:1) against
     // .regularMaterial; dark variants keep the original vivid palette which
     // already met AA against dark material backgrounds. Verified with
@@ -147,7 +147,7 @@ private enum LatencyPalette {
     }
 }
 
-private extension View {
+extension View {
     /// Share the system glass material across the dashboard's card surfaces.
     func dashboardCardStyle() -> some View {
         self
@@ -178,6 +178,8 @@ private struct DashboardCardBackground: ViewModifier {
 
 struct DashboardSettingsContent: View {
     @StateObject private var viewModel = DashboardViewModel()
+    @StateObject private var localNetwork = LocalNetworkModel()
+    @StateObject private var geForceNOWStream = GeForceNOWStreamModel()
     @ObservedObject private var sessionCoordinator = ProtectedSessionCoordinator.shared
 
     var body: some View {
@@ -197,12 +199,17 @@ struct DashboardSettingsContent: View {
         // only the redraw waits until the window can be seen again.
         .background(WindowVisibilityReader { visible in
             viewModel.setPresentationVisible(visible)
+            localNetwork.setPresentationVisible(visible)
         })
         .onAppear {
             viewModel.start()
+            localNetwork.start()
+            geForceNOWStream.start()
         }
         .onDisappear {
             viewModel.stop()
+            localNetwork.stop()
+            geForceNOWStream.stop()
         }
     }
 
@@ -212,6 +219,12 @@ struct DashboardSettingsContent: View {
 
             // Current Status Card
             StatusCard(viewModel: viewModel)
+
+            LocalNetworkCard(model: localNetwork)
+
+            if geForceNOWStream.isClientInstalled || geForceNOWStream.report != nil {
+                GeForceNOWStreamCard(model: geForceNOWStream, dashboard: viewModel)
+            }
 
             // Ping Graph
             PingGraphCard(viewModel: viewModel, chart: viewModel.chart)
@@ -527,7 +540,7 @@ struct ProtectedSessionCard: View {
         .accessibilityLabel("Latency session active for \(Self.durationText(coordinator.elapsed))")
     }
 
-    fileprivate static func durationText(_ duration: TimeInterval) -> String {
+    static func durationText(_ duration: TimeInterval) -> String {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = duration >= 3600 ? [.hour, .minute] : [.minute, .second]
         formatter.unitsStyle = .abbreviated
@@ -562,6 +575,12 @@ private struct SessionRecapView: View {
                     VStack(alignment: .leading, spacing: 8) { metrics }
                 }
 
+                if let delayOrigin = delayOriginText {
+                    Text(delayOrigin)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Text("Intervention attempts count attempts to turn off AWDL. They do not confirm successful interventions or latency spikes prevented.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -578,6 +597,22 @@ private struct SessionRecapView: View {
 
     private var hasLatencyMeasurements: Bool {
         summary.successfulSampleCount > 0
+    }
+
+    private var delayOriginText: String? {
+        guard let router = summary.router else { return nil }
+        switch LocalLinkAssessment.delayOrigin(
+            router: router,
+            targetMedianMs: summary.medianLatencyMs,
+            targetP95Ms: summary.p95LatencyMs
+        ) {
+        case .localNetwork:
+            return "Router pings were delayed too, so delays started on your Wi-Fi or router."
+        case .beyondRouter:
+            return "Your router answered quickly throughout, so delays came from past it: your internet connection or the route to the target."
+        case .none:
+            return nil
+        }
     }
 
     private var outcome: SessionRecapOutcome {
@@ -644,6 +679,20 @@ private struct SessionRecapView: View {
             value: String(format: "%.1f%%", summary.packetLossPercent),
             tint: LatencyPalette.forPacketLoss(summary.packetLossPercent)
         )
+        if let router = summary.router {
+            SessionMetric(
+                label: "Router P95",
+                value: String(format: "%.0f ms", router.p95Ms),
+                helpText: "95% of router pings came back at or below this value",
+                tint: LatencyPalette.forLatency(router.p95Ms)
+            )
+            SessionMetric(
+                label: "Router Delays",
+                value: String(format: "%.1f%%", router.delayedPercent),
+                helpText: String(format: "Router pings slower than %.0f ms or lost", RouterLatencySummary.delayThresholdMs),
+                tint: LatencyPalette.forPacketLoss(router.delayedPercent)
+            )
+        }
         SessionMetric(label: "Intervention Attempts", value: "\(summary.interventionCount)")
     }
 }

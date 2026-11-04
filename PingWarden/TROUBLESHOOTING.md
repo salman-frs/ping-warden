@@ -365,6 +365,8 @@ Do not post unrelated Console output, account names, or network details that are
 
 ## Other sources of Wi-Fi latency
 
+Check the dashboard's **Local Network** card first. If router pings are delayed too, the spikes start on your Wi-Fi or router, and moving closer, switching to 5 GHz, or using Ethernet helps more than anything past the router. If router pings stay quick while the ping target spikes, the delay is in your internet connection or the route to the server.
+
 Location Services can ask macOS to scan nearby Wi-Fi networks. If the dashboard still shows spikes while Ping Protection is active, compare a test with Location Services disabled under **System Settings → Privacy & Security → Location Services**. You can also disable access for individual apps and system services instead of turning it off globally.
 
 Ping Warden does not block Location Services scans.

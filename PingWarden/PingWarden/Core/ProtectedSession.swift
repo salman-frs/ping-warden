@@ -32,6 +32,10 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
     let interventionCount: Int
     let endReason: ProtectedSessionEndReason
     let protectionWasInterrupted: Bool
+    /// Pings to the router during the session. Nil for sessions recorded
+    /// before router pings were measured.
+    let router: RouterLatencySummary?
+    let weakestSignalDBm: Int?
 
     init(
         id: UUID,
@@ -46,7 +50,9 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
         packetLossPercent: Double,
         interventionCount: Int,
         endReason: ProtectedSessionEndReason = .endedByUser,
-        protectionWasInterrupted: Bool = false
+        protectionWasInterrupted: Bool = false,
+        router: RouterLatencySummary? = nil,
+        weakestSignalDBm: Int? = nil
     ) {
         self.id = id
         self.startedAt = startedAt
@@ -61,6 +67,8 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
         self.interventionCount = interventionCount
         self.endReason = endReason
         self.protectionWasInterrupted = protectionWasInterrupted
+        self.router = router
+        self.weakestSignalDBm = weakestSignalDBm
     }
 
     var duration: TimeInterval {
@@ -94,6 +102,14 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
                 "Probe Failures: \(probeFailureCount) of \(sampleCount) "
                     + "(\(String(format: "%.1f%%", packetLossPercent)))"
             )
+        }
+
+        if let router {
+            lines.append("Router P95: \(Self.formatMilliseconds(router.p95Ms))")
+            lines.append("Router pings delayed: \(String(format: "%.1f%%", router.delayedPercent))")
+        }
+        if let weakestSignalDBm {
+            lines.append("Weakest Wi-Fi signal: \(weakestSignalDBm) dBm")
         }
 
         if interventionCount > 0 {
@@ -142,6 +158,8 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
         case interventionCount
         case endReason
         case protectionWasInterrupted
+        case router
+        case weakestSignalDBm
     }
 
     init(from decoder: Decoder) throws {
@@ -164,6 +182,8 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
             Bool.self,
             forKey: .protectionWasInterrupted
         ) ?? false
+        router = try container.decodeIfPresent(RouterLatencySummary.self, forKey: .router)
+        weakestSignalDBm = try container.decodeIfPresent(Int.self, forKey: .weakestSignalDBm)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -181,6 +201,8 @@ struct ProtectedSessionSummary: Codable, Equatable, Identifiable, Sendable {
         try container.encode(interventionCount, forKey: .interventionCount)
         try container.encode(endReason.rawValue, forKey: .endReason)
         try container.encode(protectionWasInterrupted, forKey: .protectionWasInterrupted)
+        try container.encodeIfPresent(router, forKey: .router)
+        try container.encodeIfPresent(weakestSignalDBm, forKey: .weakestSignalDBm)
     }
 }
 
@@ -192,6 +214,8 @@ struct ProtectedSessionAccumulator: Sendable {
 
     private(set) var sampleCount = 0
     private(set) var successfulLatencies: [Double] = []
+    private(set) var routerPings: [RouterPingSample] = []
+    private(set) var weakestSignalDBm: Int?
 
     init(
         id: UUID = UUID(),
@@ -212,6 +236,14 @@ struct ProtectedSessionAccumulator: Sendable {
         }
     }
 
+    mutating func recordRouterPing(_ ping: RouterPingSample) {
+        routerPings.append(ping)
+    }
+
+    mutating func recordWiFi(_ wifi: WiFiLinkSample) {
+        weakestSignalDBm = min(weakestSignalDBm ?? wifi.signalDBm, wifi.signalDBm)
+    }
+
     func finish(
         endedAt: Date,
         endingInterventionCount: Int,
@@ -219,8 +251,8 @@ struct ProtectedSessionAccumulator: Sendable {
         protectionWasInterrupted: Bool = false
     ) -> ProtectedSessionSummary {
         let sortedLatencies = successfulLatencies.sorted()
-        let medianLatency = Self.median(of: sortedLatencies)
-        let p95Latency = Self.percentile95(of: sortedLatencies)
+        let medianLatency = Percentiles.median(ofSorted: sortedLatencies)
+        let p95Latency = Percentiles.p95(ofSorted: sortedLatencies)
         let jitter = Self.meanAbsoluteConsecutiveDifference(of: successfulLatencies)
         let failureCount = max(0, sampleCount - successfulLatencies.count)
         let packetLoss = sampleCount == 0
@@ -244,23 +276,10 @@ struct ProtectedSessionAccumulator: Sendable {
             packetLossPercent: packetLoss,
             interventionCount: interventionDelta,
             endReason: endReason,
-            protectionWasInterrupted: protectionWasInterrupted
+            protectionWasInterrupted: protectionWasInterrupted,
+            router: RouterLatencySummary(samples: routerPings),
+            weakestSignalDBm: weakestSignalDBm
         )
-    }
-
-    private static func median(of sortedValues: [Double]) -> Double {
-        guard !sortedValues.isEmpty else { return 0 }
-        let middle = sortedValues.count / 2
-        if sortedValues.count.isMultiple(of: 2) {
-            return (sortedValues[middle - 1] + sortedValues[middle]) / 2
-        }
-        return sortedValues[middle]
-    }
-
-    private static func percentile95(of sortedValues: [Double]) -> Double {
-        guard !sortedValues.isEmpty else { return 0 }
-        let rank = Int(ceil(Double(sortedValues.count) * 0.95))
-        return sortedValues[max(0, min(sortedValues.count - 1, rank - 1))]
     }
 
     private static func meanAbsoluteConsecutiveDifference(of values: [Double]) -> Double {
