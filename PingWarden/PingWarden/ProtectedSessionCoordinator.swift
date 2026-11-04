@@ -24,9 +24,11 @@ final class ProtectedSessionCoordinator: ObservableObject {
     var isTransitioning: Bool { phase == .starting || phase == .stopping }
 
     private let pingMonitor = PingMonitor.shared
+    private let localLinkMonitor = LocalLinkMonitor.shared
     private let telemetryConsumerID = UUID()
     private let store = ProtectedSessionStore()
     private var telemetryObserverToken: UUID?
+    private var localLinkObserverToken: UUID?
     private var accumulator: ProtectedSessionAccumulator?
     private var latestInterventionCount = 0
     private var elapsedTimer: Timer?
@@ -52,6 +54,11 @@ final class ProtectedSessionCoordinator: ObservableObject {
         telemetryObserverToken = pingMonitor.addObserver { [weak self] snapshot in
             Task { @MainActor in
                 self?.record(snapshot.latestResult)
+            }
+        }
+        localLinkObserverToken = localLinkMonitor.addObserver { [weak self] snapshot in
+            Task { @MainActor in
+                self?.recordLocalLink(snapshot)
             }
         }
     }
@@ -109,6 +116,7 @@ final class ProtectedSessionCoordinator: ObservableObject {
             interval: selectedTelemetryInterval(),
             priority: 50
         )
+        localLinkMonitor.start(consumerID: telemetryConsumerID)
         startSessionTimers()
         onSessionStateChanged?()
         sessionLog.info("Protected session started (\(trigger.rawValue, privacy: .public))")
@@ -177,6 +185,17 @@ final class ProtectedSessionCoordinator: ObservableObject {
         ))
     }
 
+    /// A snapshot can carry pings sent just before the session started.
+    private func recordLocalLink(_ snapshot: LocalLinkMonitor.Snapshot) {
+        guard let startedAt = accumulator?.startedAt else { return }
+        for ping in snapshot.newPings where ping.sentAt >= startedAt {
+            accumulator?.recordRouterPing(ping)
+        }
+        if let wifi = snapshot.wifi {
+            accumulator?.recordWiFi(wifi)
+        }
+    }
+
     private func finish(
         endingInterventionCount: Int,
         endReason: ProtectedSessionEndReason,
@@ -197,6 +216,7 @@ final class ProtectedSessionCoordinator: ObservableObject {
         interventionTimer?.invalidate()
         interventionTimer = nil
         pingMonitor.stop(consumerID: telemetryConsumerID)
+        localLinkMonitor.stop(consumerID: telemetryConsumerID)
 
         let summary = currentAccumulator.finish(
             endedAt: Date(),

@@ -34,7 +34,9 @@ A privileged helper waits for kernel route and interface events. When macOS rais
 |---------|--------------|
 | Ping Protection | Keeps `awdl0` down with an event-driven privileged helper |
 | Live dashboard | Tracks latency, jitter, probe failures, history, and helper interventions |
-| Latency Sessions | Protects a game or call and records a recap of it |
+| Latency Sessions | Protects a game or call and records a recap of it, including how your router responded |
+| Local Network | Pings your router 10 times a second and reads your Wi-Fi signal, so you can tell local delays from internet ones |
+| GeForce NOW stream recap | Reads the GeForce NOW client's own log after a stream and explains what slowed it down |
 | Game Mode auto-detect | Turns protection on when a recognized game is frontmost; optional Screen Recording access also catches fullscreen games |
 | Quick pause | Restores nearby-device features for 10 minutes |
 | Control Center toggle | Turns protection on or off from Control Center on macOS 26 or newer |
@@ -45,7 +47,10 @@ A privileged helper waits for kernel route and interface events. When macOS rais
 Latency history, protection state, settings, and intervention counts stay on your Mac. The app makes only these outbound connections:
 
 - TCP latency probes to the ping target you select or let Ping Warden choose.
+- ICMP echo requests to your router while the Dashboard is open or a Latency Session runs.
 - A request to `status.geforcenow.com` to discover GeForce NOW target hostnames.
+
+To recap your last GeForce NOW stream, Ping Warden reads the GeForce NOW client's log files on this Mac. Nothing from them leaves the Mac.
 
 Diagnostics exports are written locally and never uploaded.
 

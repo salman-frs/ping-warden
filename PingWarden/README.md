@@ -151,10 +151,20 @@ Cards include:
 - Latency Session:
   - Start and end a measured game or call. Starting a session enables Ping Protection.
   - Review duration, median, p95, jitter, Probe Failures, and interventions.
+  - Review router P95 and the share of router pings delayed past 50 ms, and whether delays started on the local network or past the router.
   - Share a privacy-scrubbed text recap.
 
 - Network Quality:
   - Current ping, average, best, worst, jitter, Probe Failures, AWDL state.
+- Local Network:
+  - ICMP echo to the default gateway every 100 ms, without the helper or any permission, summarized over the last minute: median, P95, and the share delayed past 50 ms or lost.
+  - Wi-Fi signal, link rate, band, and channel from CoreWLAN.
+  - Advice when the link is weak, on 2.4 GHz, or delaying while Ping Protection is off.
+- Last GeForce NOW Stream (shown when the GeForce NOW app is installed):
+  - Reads the client's own log (`~/Library/Application Support/NVIDIA/GeForceNOW/geronimo.log` and its backup) after each stream: server zone, video mode, round trip, router spikes, and the Wi-Fi link the client saw.
+  - Explains what to fix: a server above NVIDIA's 80 ms recommendation, a Wi-Fi link too slow for the stream's bitrate, local delays, or spikes past the router.
+  - Ping This Server switches the dashboard's target to the stream's zone.
+  - The log format is NVIDIA's and undocumented. Anything the parser does not recognize is left out of the report.
 - Ping History:
   - Timeframe zoom windows: 1 min, 5 min, 15 min, 30 min, 1 hour.
   - Timeframe changes are non-destructive (history is not deleted by zoom changes).

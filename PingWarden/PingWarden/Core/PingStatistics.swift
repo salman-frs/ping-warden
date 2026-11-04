@@ -104,3 +104,22 @@ enum PingStatistics {
         )
     }
 }
+
+/// Percentiles over latencies already sorted ascending. Empty input is 0.
+enum Percentiles {
+    static func median(ofSorted values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let middle = values.count / 2
+        if values.count.isMultiple(of: 2) {
+            return (values[middle - 1] + values[middle]) / 2
+        }
+        return values[middle]
+    }
+
+    /// Nearest-rank P95: the smallest value at or above 95% of the samples.
+    static func p95(ofSorted values: [Double]) -> Double {
+        guard !values.isEmpty else { return 0 }
+        let rank = Int(ceil(Double(values.count) * 0.95))
+        return values[max(0, min(values.count - 1, rank - 1))]
+    }
+}
